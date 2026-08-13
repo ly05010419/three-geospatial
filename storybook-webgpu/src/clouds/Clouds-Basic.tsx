@@ -13,7 +13,11 @@ import {
   aerialPerspective,
   AtmosphereContext
 } from '@takram/three-atmosphere/webgpu'
-import { clouds } from '@takram/three-clouds/webgpu'
+import {
+  clouds,
+  type CloudsMarchDebugShow,
+  type CloudsResolveDebugShow
+} from '@takram/three-clouds/webgpu'
 import { dithering, lensFlare } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'
@@ -168,6 +172,37 @@ const Content: FC<StoryProps> = () => {
     }
   )
 
+  useTransientControl(
+    ({ lightShafts }: StoryArgs) => lightShafts,
+    lightShafts => {
+      if (cloudsNode.lightShafts !== lightShafts) {
+        cloudsNode.lightShafts = lightShafts
+        cloudsNode.resetHistory()
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
+  useTransientControl(
+    ({ marchDebugShow }: StoryArgs) => marchDebugShow,
+    marchDebugShow => {
+      if (cloudsNode.marchNode.debugShow !== marchDebugShow) {
+        cloudsNode.marchNode.debugShow = marchDebugShow
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
+  useTransientControl(
+    ({ resolveDebugShow }: StoryArgs) => resolveDebugShow,
+    resolveDebugShow => {
+      if (cloudsNode.resolveNode.debugShow !== resolveDebugShow) {
+        cloudsNode.resolveNode.debugShow = resolveDebugShow
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
   // Tone mapping controls:
   useToneMappingControls(toneMappingNode, () => {
     postProcessing.needsUpdate = true
@@ -182,6 +217,9 @@ interface StoryArgs extends ToneMappingArgs, RendererArgs {
   coverage: number
   bsm: boolean
   temporalUpscale: boolean
+  lightShafts: boolean
+  marchDebugShow: CloudsMarchDebugShow
+  resolveDebugShow: CloudsResolveDebugShow
 }
 
 export const Story: StoryFC<StoryProps, StoryArgs> = props => (
@@ -208,6 +246,9 @@ Story.args = {
   coverage: 0.3,
   bsm: true,
   temporalUpscale: true,
+  lightShafts: true,
+  marchDebugShow: 'none',
+  resolveDebugShow: 'none',
   ...toneMappingArgs({
     toneMappingExposure: 10
   }),
@@ -223,10 +264,32 @@ Story.argTypes = {
       step: 0.01
     }
   },
+  bsm: {
+    control: {
+      type: 'boolean'
+    }
+  },
   temporalUpscale: {
     control: {
       type: 'boolean'
     }
+  },
+  lightShafts: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  marchDebugShow: {
+    control: {
+      type: 'select'
+    },
+    options: ['none', 'uv', 'sampleCount', 'frontDepth', 'shadowLength']
+  },
+  resolveDebugShow: {
+    control: {
+      type: 'select'
+    },
+    options: ['none', 'velocity', 'shadowLength']
   },
   ...toneMappingArgTypes(),
   ...rendererArgTypes()
