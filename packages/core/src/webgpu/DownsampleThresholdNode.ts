@@ -11,7 +11,7 @@ export class DownsampleThresholdNode extends SingleFilterNode {
     return 'DownsampleThresholdNode'
   }
 
-  thresholdLevel = uniform(5)
+  thresholdLevel = uniform(10)
   thresholdRange = uniform(1)
 
   constructor(inputNode?: TextureNode | null) {

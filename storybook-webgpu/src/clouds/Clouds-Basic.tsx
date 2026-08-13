@@ -105,9 +105,11 @@ const Content: FC<StoryProps> = () => {
     const shadowLengthNode = cloudsNode.getShadowLengthNode()
     aerialNode.shadowLengthNode = shadowLengthNode
     const skyNode = aerialNode.skyNode as {
+      showStars?: boolean
       shadowLengthNode?: typeof shadowLengthNode
     } | null
     if (skyNode != null) {
+      skyNode.showStars = false
       skyNode.shadowLengthNode = shadowLengthNode
     }
     return shadowLengthNode
