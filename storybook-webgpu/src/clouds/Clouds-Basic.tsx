@@ -1,6 +1,7 @@
+import { OrbitControls } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, type FC } from 'react'
-import { AgXToneMapping } from 'three'
+import { AgXToneMapping, Euler, Vector3 } from 'three'
 import { context, pass, toneMapping, uniform, vec4 } from 'three/tsl'
 import { PostProcessing, type Renderer } from 'three/webgpu'
 
@@ -47,6 +48,20 @@ const CAMERA_POSITION: [number, number, number] = [
 ]
 const CAMERA_ROTATION: [number, number, number] = [
   0.6423512931563148, -0.2928348796035058, -0.8344824769956042
+]
+const CAMERA_EULER = new Euler(...CAMERA_ROTATION)
+const CAMERA_TARGET_VECTOR = new Vector3()
+  .fromArray(CAMERA_POSITION)
+  .add(new Vector3(0, 0, -1000).applyEuler(CAMERA_EULER))
+const CAMERA_TARGET = CAMERA_TARGET_VECTOR.toArray() as [
+  number,
+  number,
+  number
+]
+const CAMERA_UP = new Vector3(0, 1, 0).applyEuler(CAMERA_EULER).toArray() as [
+  number,
+  number,
+  number
 ]
 
 // Equivalent to dayOfYear 0, timeOfDay 9 at longitude 30:
@@ -280,9 +295,11 @@ export const Story: StoryFC<StoryProps, StoryArgs> = props => (
       far: 4e5,
       fov: 75,
       position: CAMERA_POSITION,
-      rotation: CAMERA_ROTATION
+      rotation: CAMERA_ROTATION,
+      up: CAMERA_UP
     }}
   >
+    <OrbitControls target={CAMERA_TARGET} minDistance={1000} />
     <Content {...props} />
     <Description />
   </WebGPUCanvas>
