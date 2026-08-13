@@ -97,7 +97,7 @@ export class CloudsResolveNode extends TempNode {
   depthVelocityNode: TextureNode
   shadowLengthNode: TextureNode
 
-  temporalUpscale = true
+  temporalUpscale = false
   lightShafts = true
   debugShow: CloudsResolveDebugShow = 'none'
 

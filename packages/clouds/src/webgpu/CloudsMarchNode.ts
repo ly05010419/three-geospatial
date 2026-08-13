@@ -202,7 +202,7 @@ export class CloudsMarchNode extends TempNode {
   // in the WebGL version. They are plain static options here by design:
   powder = true
   groundBounce = true
-  temporalUpscale = true
+  temporalUpscale = false
   lightShafts: boolean = defaults.lightShafts
   // Ideally these should be uniforms, but the phase function is highly
   // optimizable and used many times, so they are baked as constants:
