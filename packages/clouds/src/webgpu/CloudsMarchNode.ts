@@ -139,6 +139,10 @@ const cloudsMarchOutputStruct = /*#__PURE__*/ struct(
   'CloudsMarchOutput'
 )
 
+// WebGPU screenUV is derived from fragment coordinates with a top-left origin.
+const clipToScreenUv = (clip: Node<'vec4'>): Node<'vec2'> =>
+  vec2(clip.x.mul(0.5).add(0.5), clip.y.mul(-0.5).add(0.5))
+
 export interface CloudsMarchNodeParameters {
   // The scene depth, read to clamp the ray at the scene. Without it the rays
   // extend to the cloud layer boundaries:
@@ -950,7 +954,7 @@ export class CloudsMarchNode extends TempNode {
                 .mul(vec4(frontPositionWorld, 1))
                 .toVar()
               prevClip.divAssign(prevClip.w)
-              const prevUv = prevClip.xy.mul(0.5).add(0.5).toConst()
+              const prevUv = clipToScreenUv(prevClip).toConst()
               const velocity = screenUV.sub(prevUv).toConst()
               depthVelocity.assign(vec3(frontDepth, velocity))
             })
@@ -982,7 +986,7 @@ export class CloudsMarchNode extends TempNode {
           .mul(vec4(frontView, 1))
           .toVar()
         prevClip.divAssign(prevClip.w)
-        const prevUv = prevClip.xy.mul(0.5).add(0.5).toConst()
+        const prevUv = clipToScreenUv(prevClip).toConst()
         const velocity = screenUV.sub(prevUv).toConst()
         depthVelocity.assign(vec3(frontDepth, velocity))
       })
