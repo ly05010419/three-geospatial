@@ -10,6 +10,7 @@ import VanillaCode from './Clouds-Vanilla?raw'
 export default {
   title: 'clouds/Clouds',
   parameters: {
+    layout: 'fullscreen',
     docs: {
       codePanel: true,
       source: {
