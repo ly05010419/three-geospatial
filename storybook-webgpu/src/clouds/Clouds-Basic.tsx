@@ -16,6 +16,7 @@ import {
 import {
   clouds,
   type CloudsMarchDebugShow,
+  type CloudsQualityPreset,
   type CloudsResolveDebugShow
 } from '@takram/three-clouds/webgpu'
 import { dithering, lensFlare } from '@takram/three-geospatial/webgpu'
@@ -147,6 +148,15 @@ const Content: FC<StoryProps> = () => {
     }
   )
 
+  useTransientControl(
+    ({ qualityPreset }: StoryArgs) => qualityPreset,
+    qualityPreset => {
+      cloudsNode.qualityPreset = qualityPreset
+      cloudsNode.resetHistory()
+      postProcessing.needsUpdate = true
+    }
+  )
+
   // The M2/M3 bisect toggle: false renders without the BSM contribution.
   // A static option, so the node graph must rebuild:
   useTransientControl(
@@ -184,6 +194,36 @@ const Content: FC<StoryProps> = () => {
   )
 
   useTransientControl(
+    ({ haze }: StoryArgs) => haze,
+    haze => {
+      if (cloudsNode.haze !== haze) {
+        cloudsNode.haze = haze
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
+  useTransientControl(
+    ({ shapeDetail }: StoryArgs) => shapeDetail,
+    shapeDetail => {
+      if (cloudsNode.shapeDetail !== shapeDetail) {
+        cloudsNode.shapeDetail = shapeDetail
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
+  useTransientControl(
+    ({ turbulence }: StoryArgs) => turbulence,
+    turbulence => {
+      if (cloudsNode.turbulence !== turbulence) {
+        cloudsNode.turbulence = turbulence
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
+  useTransientControl(
     ({ marchDebugShow }: StoryArgs) => marchDebugShow,
     marchDebugShow => {
       if (cloudsNode.marchNode.debugShow !== marchDebugShow) {
@@ -215,9 +255,13 @@ interface StoryProps {}
 
 interface StoryArgs extends ToneMappingArgs, RendererArgs {
   coverage: number
+  qualityPreset: CloudsQualityPreset
   bsm: boolean
   temporalUpscale: boolean
   lightShafts: boolean
+  haze: boolean
+  shapeDetail: boolean
+  turbulence: boolean
   marchDebugShow: CloudsMarchDebugShow
   resolveDebugShow: CloudsResolveDebugShow
 }
@@ -244,9 +288,13 @@ export const Story: StoryFC<StoryProps, StoryArgs> = props => (
 
 Story.args = {
   coverage: 0.3,
+  qualityPreset: 'high',
   bsm: true,
   temporalUpscale: true,
   lightShafts: true,
+  haze: true,
+  shapeDetail: true,
+  turbulence: true,
   marchDebugShow: 'none',
   resolveDebugShow: 'none',
   ...toneMappingArgs({
@@ -264,6 +312,12 @@ Story.argTypes = {
       step: 0.01
     }
   },
+  qualityPreset: {
+    control: {
+      type: 'select'
+    },
+    options: ['low', 'medium', 'high', 'ultra']
+  },
   bsm: {
     control: {
       type: 'boolean'
@@ -275,6 +329,21 @@ Story.argTypes = {
     }
   },
   lightShafts: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  haze: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  shapeDetail: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  turbulence: {
     control: {
       type: 'boolean'
     }

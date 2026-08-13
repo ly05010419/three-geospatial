@@ -1,3 +1,5 @@
+export type { QualityPreset as CloudsQualityPreset } from '../qualityPresets'
+
 export * from './bayer'
 export * from './CloudShadowNode'
 export * from './CloudShapeDetailNode'
@@ -6,6 +8,7 @@ export * from './CloudsMarchNode'
 export * from './CloudsNode'
 export * from './CloudsResolveNode'
 export * from './common'
+export * from './defaultTextures'
 export * from './LocalWeatherNode'
 export * from './ProceduralTexture3DNode'
 export * from './ProceduralTextureNode'

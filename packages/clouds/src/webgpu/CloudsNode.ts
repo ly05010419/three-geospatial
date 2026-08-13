@@ -11,21 +11,22 @@
 
 import {
   Data3DTexture,
-  LinearFilter,
-  LinearMipmapLinearFilter,
   Matrix3,
-  NearestFilter,
-  NoColorSpace,
-  RedFormat,
-  RepeatWrapping,
   Texture,
-  TextureLoader,
   Vector2,
   Vector3,
   type Camera,
   type PerspectiveCamera
 } from 'three'
-import { ivec2, screenCoordinate, texture, texture3D, uniform } from 'three/tsl'
+import { hash } from 'three/src/nodes/core/NodeUtils.js'
+import {
+  ivec2,
+  screenCoordinate,
+  screenUV,
+  texture,
+  texture3D,
+  uniform
+} from 'three/tsl'
 import {
   NodeUpdateType,
   TempNode,
@@ -40,31 +41,28 @@ import {
   getAtmosphereContext,
   type AtmosphereContext
 } from '@takram/three-atmosphere/webgpu'
-import {
-  DataTextureLoader,
-  DEFAULT_STBN_URL,
-  lerp,
-  parseUint8Array,
-  STBN_TEXTURE_DEPTH,
-  STBN_TEXTURE_HEIGHT,
-  STBN_TEXTURE_WIDTH,
-  STBNLoader
-} from '@takram/three-geospatial'
+import { lerp } from '@takram/three-geospatial'
 import type { Node } from '@takram/three-geospatial/webgpu'
 
 import type { CascadedShadowMaps } from '../CascadedShadowMaps'
 import { CloudLayers } from '../CloudLayers'
 import {
   CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
-  CLOUD_SHAPE_TEXTURE_SIZE,
-  DEFAULT_LOCAL_WEATHER_URL,
-  DEFAULT_SHAPE_DETAIL_URL,
-  DEFAULT_SHAPE_URL,
-  DEFAULT_TURBULENCE_URL
+  CLOUD_SHAPE_TEXTURE_SIZE
 } from '../constants'
+import { defaults, qualityPresets, type QualityPreset } from '../qualityPresets'
 import { CloudShadowNode } from './CloudShadowNode'
 import { CloudsMarchNode } from './CloudsMarchNode'
 import { CloudsResolveNode } from './CloudsResolveNode'
+import {
+  configurePlaceholder2DTexture,
+  configurePlaceholder3DTexture,
+  configurePlaceholderSTBNTexture,
+  loadDefaultCloudTextures,
+  type DefaultCloudTextures
+} from './defaultTextures'
+import { ProceduralTexture3DNode } from './ProceduralTexture3DNode'
+import { ProceduralTextureNode } from './ProceduralTextureNode'
 import {
   createCloudLayerUniforms,
   createCloudParameterUniforms,
@@ -73,136 +71,16 @@ import {
   type CloudParameterUniforms
 } from './uniforms'
 
-// The same sampler state as the WebGL texture loading path (r3f/Clouds.tsx).
-// The state is applied synchronously at creation (not only in the load
-// callback) so that a shader built before the fetch completes already sees
-// the correct sampler semantics:
-function loadDefaultTexture(url: string): Texture {
-  return configurePlaceholder2DTexture(
-    new TextureLoader().load(url, texture => {
-      texture.needsUpdate = true
-    })
-  )
-}
-
-function loadDefault3DTexture(url: string, size: number): Data3DTexture {
-  const texture = new DataTextureLoader(Data3DTexture, parseUint8Array, {
-    width: size,
-    height: size,
-    depth: size,
-    format: RedFormat,
-    minFilter: LinearFilter,
-    magFilter: LinearFilter,
-    wrapS: RepeatWrapping,
-    wrapT: RepeatWrapping,
-    wrapR: RepeatWrapping,
-    colorSpace: NoColorSpace
-  }).load(url)
-  // CRITICAL: DataTextureLoader applies the options above only when the fetch
-  // completes, but the clouds shader is usually built before that. The WGSL
-  // node builder bakes the sampling path from the texture state at build time
-  // (a Nearest-filtered Data3DTexture compiles into a clamped textureLoad
-  // instead of repeat-wrapped linear sampling), so the sampler state must be
-  // present on the texture from the moment it is created:
-  return configurePlaceholder3DTexture(texture, size, size, size)
-}
-
-// The same sampler state as loadDefaultTexture() applies on load:
-function configurePlaceholder2DTexture(texture: Texture): Texture {
-  texture.minFilter = LinearMipmapLinearFilter
-  texture.magFilter = LinearFilter
-  texture.wrapS = RepeatWrapping
-  texture.wrapT = RepeatWrapping
-  texture.colorSpace = NoColorSpace
-  return texture
-}
-
-// The same sampler state as loadDefault3DTexture() applies on load:
-function ensureUploadable3DTexture(
-  texture: Data3DTexture,
-  width: number,
-  height: number,
-  depth: number
-): void {
-  texture.image.width = width
-  texture.image.height = height
-  texture.image.depth = depth
-  if (texture.image.data == null) {
-    texture.image.data = new Uint8Array(width * height * depth)
-  }
-  texture.needsUpdate = true
-}
-
-function configurePlaceholder3DTexture(
-  texture: Data3DTexture,
-  width?: number,
-  height?: number,
-  depth?: number
-): Data3DTexture {
-  if (width != null && height != null && depth != null) {
-    ensureUploadable3DTexture(texture, width, height, depth)
-  }
-  texture.format = RedFormat
-  texture.minFilter = LinearFilter
-  texture.magFilter = LinearFilter
-  texture.wrapS = RepeatWrapping
-  texture.wrapT = RepeatWrapping
-  texture.wrapR = RepeatWrapping
-  texture.colorSpace = NoColorSpace
-  return texture
-}
-
-// The same sampler state as STBNLoader applies on load. The STBN texture is
-// read via texel fetch, but keep the declared state consistent regardless:
-function configurePlaceholderSTBNTexture(
-  texture: Data3DTexture
-): Data3DTexture {
-  ensureUploadable3DTexture(
-    texture,
-    STBN_TEXTURE_WIDTH,
-    STBN_TEXTURE_HEIGHT,
-    STBN_TEXTURE_DEPTH
-  )
-  texture.format = RedFormat
-  texture.minFilter = NearestFilter
-  texture.magFilter = NearestFilter
-  texture.wrapS = RepeatWrapping
-  texture.wrapT = RepeatWrapping
-  texture.wrapR = RepeatWrapping
-  texture.colorSpace = NoColorSpace
-  return texture
-}
-
-export interface DefaultCloudTextures {
-  localWeather: Texture
-  shape: Data3DTexture
-  shapeDetail: Data3DTexture
-  turbulence: Texture
-  stbn: Data3DTexture
-}
-
-// Loads the textures of the hosted default assets, with the identical sampler
-// state to the WebGL loading path. The textures are returned synchronously and
-// populate asynchronously. To be extracted into defaultTextures.ts at M5.
-export function loadDefaultCloudTextures(): DefaultCloudTextures {
-  return {
-    localWeather: loadDefaultTexture(DEFAULT_LOCAL_WEATHER_URL),
-    shape: loadDefault3DTexture(DEFAULT_SHAPE_URL, CLOUD_SHAPE_TEXTURE_SIZE),
-    shapeDetail: loadDefault3DTexture(
-      DEFAULT_SHAPE_DETAIL_URL,
-      CLOUD_SHAPE_DETAIL_TEXTURE_SIZE
-    ),
-    turbulence: loadDefaultTexture(DEFAULT_TURBULENCE_URL),
-    stbn: configurePlaceholderSTBNTexture(
-      new STBNLoader().load(DEFAULT_STBN_URL)
-    )
-  }
-}
-
 const sizeScratch = /*#__PURE__*/ new Vector2()
 const vectorScratch1 = /*#__PURE__*/ new Vector3()
 const vectorScratch2 = /*#__PURE__*/ new Vector3()
 const rotationScratch = /*#__PURE__*/ new Matrix3()
+
+export type CloudsTextureInput = Texture | TextureNode | ProceduralTextureNode
+export type CloudsTexture3DInput =
+  | Data3DTexture
+  | Texture3DNode
+  | ProceduralTexture3DNode
 
 export class CloudsNode extends TempNode {
   static override get type(): string {
@@ -232,6 +110,8 @@ export class CloudsNode extends TempNode {
   readonly marchNode: CloudsMarchNode
   readonly resolveNode: CloudsResolveNode
 
+  resolutionScale: number = defaults.resolutionScale
+
   // Texture node wrappers whose values can be swapped without rebuilding:
   private readonly localWeatherTextureNode: TextureNode
   private readonly shapeTextureNode: Texture3DNode
@@ -247,6 +127,10 @@ export class CloudsNode extends TempNode {
   // assigned via the setters are not disposed.
   private readonly placeholderTextures: Array<Texture | Data3DTexture>
   private defaultTextures?: DefaultCloudTextures
+  private proceduralLocalWeather?: ProceduralTextureNode
+  private proceduralShape?: ProceduralTexture3DNode
+  private proceduralShapeDetail?: ProceduralTexture3DNode
+  private proceduralTurbulence?: ProceduralTextureNode
 
   // Captured in setup() for the CPU shadow-map update in updateBefore():
   private atmosphereContext?: AtmosphereContext
@@ -345,6 +229,15 @@ export class CloudsNode extends TempNode {
     this.updateBeforeType = NodeUpdateType.FRAME
   }
 
+  override customCacheKey(): number {
+    return hash(
+      this.shadowNode.customCacheKey(),
+      this.marchNode.customCacheKey(),
+      this.resolveNode.customCacheKey(),
+      Math.round(this.resolutionScale * 1000)
+    )
+  }
+
   // The cascaded shadow maps (CPU), owned by the shadow node and updated by
   // this facade every frame:
   get shadowMaps(): CascadedShadowMaps {
@@ -403,44 +296,167 @@ export class CloudsNode extends TempNode {
     this.parameterUniforms.coverage.value = value
   }
 
-  get localWeatherTexture(): Texture {
-    return this.localWeatherTextureNode.value
+  set qualityPreset(value: QualityPreset) {
+    const preset = qualityPresets[value]
+
+    this.resolutionScale = preset.resolutionScale
+    this.lightShafts = preset.lightShafts
+    this.shapeDetail = preset.shapeDetail
+    this.turbulence = preset.turbulence
+    this.haze = preset.haze
+
+    Object.assign(this.marchNode, {
+      multiScatteringOctaves: preset.clouds.multiScatteringOctaves,
+      accurateSunSkyLight: preset.clouds.accurateSunSkyLight,
+      accuratePhaseFunction: preset.clouds.accuratePhaseFunction
+    })
+    this.marchNode.maxIterationCount.value = preset.clouds.maxIterationCount
+    this.marchNode.minStepSize.value = preset.clouds.minStepSize
+    this.marchNode.maxStepSize.value = preset.clouds.maxStepSize
+    this.marchNode.maxRayDistance.value = preset.clouds.maxRayDistance
+    this.marchNode.perspectiveStepScale.value =
+      preset.clouds.perspectiveStepScale
+    this.marchNode.minDensity.value = preset.clouds.minDensity
+    this.marchNode.minExtinction.value = preset.clouds.minExtinction
+    this.marchNode.minTransmittance.value = preset.clouds.minTransmittance
+    this.marchNode.maxIterationCountToGround.value =
+      preset.clouds.maxIterationCountToGround
+    this.marchNode.maxIterationCountToSun.value =
+      preset.clouds.maxIterationCountToSun
+    this.marchNode.minSecondaryStepSize.value =
+      preset.clouds.minSecondaryStepSize
+    this.marchNode.secondaryStepScale.value = preset.clouds.secondaryStepScale
+    this.marchNode.maxShadowLengthIterationCount.value =
+      preset.clouds.maxShadowLengthIterationCount
+    this.marchNode.minShadowLengthStepSize.value =
+      preset.clouds.minShadowLengthStepSize
+    this.marchNode.maxShadowLengthRayDistance.value =
+      preset.clouds.maxShadowLengthRayDistance
+
+    this.shadowNode.shadowMaps.cascadeCount = preset.shadow.cascadeCount
+    this.shadowNode.shadowMaps.mapSize.copy(preset.shadow.mapSize)
+    this.shadowNode.maxIterationCount.value = preset.shadow.maxIterationCount
+    this.shadowNode.minStepSize.value = preset.shadow.minStepSize
+    this.shadowNode.maxStepSize.value = preset.shadow.maxStepSize
+    this.shadowNode.minDensity.value = preset.shadow.minDensity
+    this.shadowNode.minExtinction.value = preset.shadow.minExtinction
+    this.shadowNode.minTransmittance.value = preset.shadow.minTransmittance
   }
 
-  set localWeatherTexture(value: Texture) {
-    this.localWeatherTextureNode.value = value
+  get shapeDetail(): boolean {
+    return this.marchNode.shapeDetail
   }
 
-  get shapeTexture(): Data3DTexture {
-    return this.shapeTextureNode.value as Data3DTexture
+  set shapeDetail(value: boolean) {
+    this.marchNode.shapeDetail = value
+    this.shadowNode.shapeDetail = value
   }
 
-  set shapeTexture(value: Data3DTexture) {
-    this.shapeTextureNode.value = value
+  get turbulence(): boolean {
+    return this.marchNode.turbulence
   }
 
-  get shapeDetailTexture(): Data3DTexture {
-    return this.shapeDetailTextureNode.value as Data3DTexture
+  set turbulence(value: boolean) {
+    this.marchNode.turbulence = value
+    this.shadowNode.turbulence = value
   }
 
-  set shapeDetailTexture(value: Data3DTexture) {
-    this.shapeDetailTextureNode.value = value
+  get haze(): boolean {
+    return this.marchNode.haze
   }
 
-  get turbulenceTexture(): Texture {
-    return this.turbulenceTextureNode.value
+  set haze(value: boolean) {
+    this.marchNode.haze = value
   }
 
-  set turbulenceTexture(value: Texture) {
-    this.turbulenceTextureNode.value = value
+  get localWeatherTexture(): Texture | TextureNode | ProceduralTextureNode {
+    return this.proceduralLocalWeather ?? this.localWeatherTextureNode.value
   }
 
-  get stbnTexture(): Data3DTexture {
+  set localWeatherTexture(value: CloudsTextureInput) {
+    if (value instanceof ProceduralTextureNode) {
+      this.proceduralLocalWeather = value
+      this.localWeatherTextureNode.value = value.texture
+    } else if ((value as TextureNode).isTextureNode === true) {
+      this.proceduralLocalWeather = undefined
+      this.localWeatherTextureNode.value = (value as TextureNode).value
+    } else {
+      this.proceduralLocalWeather = undefined
+      this.localWeatherTextureNode.value = value as Texture
+    }
+  }
+
+  get shapeTexture(): Data3DTexture | Texture3DNode | ProceduralTexture3DNode {
+    return (
+      this.proceduralShape ?? (this.shapeTextureNode.value as Data3DTexture)
+    )
+  }
+
+  set shapeTexture(value: CloudsTexture3DInput) {
+    if (value instanceof ProceduralTexture3DNode) {
+      this.proceduralShape = value
+      this.shapeTextureNode.value = value.texture
+    } else if ((value as Texture3DNode).isTexture3DNode === true) {
+      this.proceduralShape = undefined
+      this.shapeTextureNode.value = (value as Texture3DNode).value
+    } else {
+      this.proceduralShape = undefined
+      this.shapeTextureNode.value = value as Data3DTexture
+    }
+  }
+
+  get shapeDetailTexture():
+    | Data3DTexture
+    | Texture3DNode
+    | ProceduralTexture3DNode {
+    return (
+      this.proceduralShapeDetail ??
+      (this.shapeDetailTextureNode.value as Data3DTexture)
+    )
+  }
+
+  set shapeDetailTexture(value: CloudsTexture3DInput) {
+    if (value instanceof ProceduralTexture3DNode) {
+      this.proceduralShapeDetail = value
+      this.shapeDetailTextureNode.value = value.texture
+    } else if ((value as Texture3DNode).isTexture3DNode === true) {
+      this.proceduralShapeDetail = undefined
+      this.shapeDetailTextureNode.value = (value as Texture3DNode).value
+    } else {
+      this.proceduralShapeDetail = undefined
+      this.shapeDetailTextureNode.value = value as Data3DTexture
+    }
+  }
+
+  get turbulenceTexture(): Texture | TextureNode | ProceduralTextureNode {
+    return this.proceduralTurbulence ?? this.turbulenceTextureNode.value
+  }
+
+  set turbulenceTexture(value: CloudsTextureInput) {
+    if (value instanceof ProceduralTextureNode) {
+      this.proceduralTurbulence = value
+      this.turbulenceTextureNode.value = value.texture
+    } else if ((value as TextureNode).isTextureNode === true) {
+      this.proceduralTurbulence = undefined
+      this.turbulenceTextureNode.value = (value as TextureNode).value
+    } else {
+      this.proceduralTurbulence = undefined
+      this.turbulenceTextureNode.value = value as Texture
+    }
+  }
+
+  get stbnTexture(): Data3DTexture | Texture3DNode | ProceduralTexture3DNode {
     return this.stbnTextureNode.value as Data3DTexture
   }
 
-  set stbnTexture(value: Data3DTexture) {
-    this.stbnTextureNode.value = value
+  set stbnTexture(value: CloudsTexture3DInput) {
+    if (value instanceof ProceduralTexture3DNode) {
+      this.stbnTextureNode.value = value.texture
+    } else if ((value as Texture3DNode).isTexture3DNode === true) {
+      this.stbnTextureNode.value = (value as Texture3DNode).value
+    } else {
+      this.stbnTextureNode.value = value as Data3DTexture
+    }
   }
 
   // Loads the default hosted assets into every texture slot. The loaded
@@ -462,9 +478,8 @@ export class CloudsNode extends TempNode {
   }
 
   getShadowLengthNode(): Node<'float'> {
-    return this.getTextureNode('shadowLength').load(
-      ivec2(screenCoordinate.xy)
-    ).r
+    return this.getTextureNode('shadowLength').load(ivec2(screenCoordinate.xy))
+      .r
   }
 
   // Ported from the shadow map portion of CloudsEffect.updateSharedUniforms.
@@ -528,9 +543,11 @@ export class CloudsNode extends TempNode {
     this.shadowNode.update(frame)
 
     const size = renderer.getDrawingBufferSize(sizeScratch)
-    this.marchNode.setSize(size.x, size.y)
+    const width = Math.max(1, Math.ceil(size.x * this.resolutionScale))
+    const height = Math.max(1, Math.ceil(size.y * this.resolutionScale))
+    this.marchNode.setSize(width, height)
     this.marchNode.update(frame)
-    this.resolveNode.setSize(size.x, size.y)
+    this.resolveNode.setSize(width, height)
     this.resolveNode.update(frame)
   }
 
@@ -540,7 +557,9 @@ export class CloudsNode extends TempNode {
     const atmosphereContext = getAtmosphereContext(builder)
     this.atmosphereContext = atmosphereContext
     this.camera = atmosphereContext.camera ?? builder.camera ?? undefined
-    return this.getTextureNode('output').load(ivec2(screenCoordinate.xy))
+    return this.resolutionScale === 1
+      ? this.getTextureNode('output').load(ivec2(screenCoordinate.xy))
+      : this.getTextureNode('output').sample(screenUV)
   }
 
   override dispose(): void {

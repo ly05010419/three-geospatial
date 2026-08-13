@@ -1,0 +1,144 @@
+import { AgXToneMapping, PerspectiveCamera, Scene, Vector3 } from 'three'
+import type { WebGPURendererParameters } from 'three/src/renderers/webgpu/WebGPURenderer.js'
+import { context, pass, toneMapping, uniform, vec4 } from 'three/tsl'
+import { PostProcessing, WebGPURenderer } from 'three/webgpu'
+
+import {
+  getECIToECEFRotationMatrix,
+  getMoonDirectionECI,
+  getSunDirectionECI
+} from '@takram/three-atmosphere'
+import {
+  aerialPerspective,
+  AtmosphereContext
+} from '@takram/three-atmosphere/webgpu'
+import { clouds } from '@takram/three-clouds/webgpu'
+import { dithering, lensFlare } from '@takram/three-geospatial/webgpu'
+
+import type { StoryFC } from '../components/createStory'
+
+const CAMERA_POSITION = new Vector3(
+  4529893.894855564,
+  2615333.425024031,
+  3638042.815326614
+)
+const CAMERA_ROTATION: [number, number, number] = [
+  0.6423512931563148, -0.2928348796035058, -0.8344824769956042
+]
+const REFERENCE_DATE = Date.parse('2025-01-01T07:00:00Z')
+
+async function init(container: HTMLDivElement): Promise<() => void> {
+  const rendererParameters: WebGPURendererParameters = {
+    requiredLimits: {
+      maxSampledTexturesPerShaderStage: 32
+    }
+  }
+  const renderer = new WebGPURenderer(rendererParameters)
+  renderer.highPrecision = true
+  renderer.setPixelRatio(window.devicePixelRatio)
+  renderer.setSize(window.innerWidth, window.innerHeight)
+  container.appendChild(renderer.domElement)
+  await renderer.init()
+
+  const scene = new Scene()
+  const camera = new PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    1,
+    4e5
+  )
+  camera.position.copy(CAMERA_POSITION)
+  camera.rotation.fromArray(CAMERA_ROTATION)
+  camera.updateMatrixWorld()
+
+  const atmosphereContext = new AtmosphereContext()
+  atmosphereContext.camera = camera
+  renderer.contextNode = context({
+    ...renderer.contextNode.value,
+    getAtmosphere: () => atmosphereContext
+  })
+
+  const { matrixECIToECEF, sunDirectionECEF, moonDirectionECEF } =
+    atmosphereContext
+  getECIToECEFRotationMatrix(REFERENCE_DATE, matrixECIToECEF.value)
+  getSunDirectionECI(REFERENCE_DATE, sunDirectionECEF.value).applyMatrix4(
+    matrixECIToECEF.value
+  )
+  getMoonDirectionECI(REFERENCE_DATE, moonDirectionECEF.value).applyMatrix4(
+    matrixECIToECEF.value
+  )
+
+  const passNode = pass(scene, camera, { samples: 0 })
+  const colorNode = passNode.getTextureNode('output')
+  const depthNode = passNode.getTextureNode('depth')
+  const cloudsNode = clouds(depthNode).loadDefaultTextures()
+  const aerialNode = aerialPerspective(colorNode, depthNode)
+
+  const shadowLengthNode = cloudsNode.getShadowLengthNode()
+  aerialNode.shadowLengthNode = shadowLengthNode
+  const skyNode = aerialNode.skyNode as {
+    shadowLengthNode?: typeof shadowLengthNode
+  } | null
+  if (skyNode != null) {
+    skyNode.shadowLengthNode = shadowLengthNode
+  }
+
+  const compositeNode = vec4(
+    aerialNode.rgb.mul(cloudsNode.a.oneMinus()).add(cloudsNode.rgb),
+    1
+  )
+  const lensFlareNode = lensFlare(compositeNode)
+  const toneMappingNode = toneMapping(
+    AgXToneMapping,
+    uniform(10),
+    lensFlareNode
+  )
+  const postProcessing = new PostProcessing(
+    renderer,
+    toneMappingNode.add(dithering)
+  )
+
+  const handleResize = (): void => {
+    camera.aspect = window.innerWidth / window.innerHeight
+    camera.updateProjectionMatrix()
+    renderer.setSize(window.innerWidth, window.innerHeight)
+  }
+  window.addEventListener('resize', handleResize)
+
+  renderer.setAnimationLoop(() => {
+    postProcessing.render()
+  })
+
+  return () => {
+    window.removeEventListener('resize', handleResize)
+    renderer.setAnimationLoop(null)
+    postProcessing.dispose()
+    lensFlareNode.dispose()
+    aerialNode.dispose()
+    cloudsNode.dispose()
+    passNode.dispose()
+    atmosphereContext.dispose()
+    renderer.dispose()
+    renderer.domElement.remove()
+  }
+}
+
+export const Story: StoryFC = () => (
+  <div
+    ref={ref => {
+      if (ref != null) {
+        const promise = init(ref)
+        promise.catch((error: unknown) => {
+          console.error(error)
+        })
+        return () => {
+          void promise.then(dispose => {
+            dispose()
+          })
+        }
+      }
+    }}
+  />
+)
+
+export default Story
