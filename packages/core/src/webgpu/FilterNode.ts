@@ -8,7 +8,6 @@ import {
 import {
   NodeUpdateType,
   TempNode,
-  type Node,
   type NodeBuilder,
   type TextureNode
 } from 'three/webgpu'
