@@ -26,12 +26,7 @@
 // shadowMaps.update() and this node's update() explicitly each frame; this
 // node is not independently FRAME-updated (see D1 in .port-plan.md).
 
-import {
-  Matrix4,
-  Vector2,
-  type Data3DTexture,
-  type Texture
-} from 'three'
+import { Matrix4, Vector2, type Data3DTexture, type Texture } from 'three'
 import { hash } from 'three/src/nodes/core/NodeUtils.js'
 import {
   float,
@@ -186,8 +181,9 @@ export class CloudShadowNode extends TempNode {
   readonly minTransmittance: UniformNode<number> = uniform(
     defaults.shadow.minTransmittance
   ).setName('minTransmittance')
-  readonly opticalDepthTailScale: UniformNode<number> =
-    uniform(2).setName('opticalDepthTailScale')
+  readonly opticalDepthTailScale: UniformNode<number> = uniform(2).setName(
+    'opticalDepthTailScale'
+  )
 
   // Temporal resolve, ported from the ShadowResolveMaterial uniforms:
   readonly varianceGamma: UniformNode<number> =
@@ -562,10 +558,7 @@ export class CloudShadowNode extends TempNode {
 
       if (temporalPass) {
         // Velocity for temporal resolution:
-        const frontPosition = rayDirection
-          .mul(color.x)
-          .add(rayOrigin)
-          .toConst()
+        const frontPosition = rayDirection.mul(color.x).add(rayOrigin).toConst()
         const frontPositionWorld = matrixECEFToWorld
           .mul(vec4(frontPosition.sub(altitudeCorrection), 1))
           .xyz.toConst()
@@ -576,15 +569,11 @@ export class CloudShadowNode extends TempNode {
         prevClip.divAssign(prevClip.w)
         const prevUv = prevClip.xy.mul(0.5).add(0.5).toConst()
         const velocity = uv.sub(prevUv).mul(this.resolution).toConst()
-        textureStore(
-          depthVelocityTexture,
-          globalId,
-          vec4(color.x, velocity, 0)
-        )
+        textureStore(depthVelocityTexture, globalId, vec4(color.x, velocity, 0))
       }
     })()
       .compute(
-        0, // Dispatched with an explicit dispatch size
+        1, // Normally overridden by update() with the sized dispatch.
         [8, 8, 1]
       )
       .setName('CloudShadowNode.March')
@@ -635,9 +624,7 @@ export class CloudShadowNode extends TempNode {
           // so that the linear filtering never bleeds across the cascades,
           // while remaining bilinear in xy:
           const w = float(cascadeIndex).add(0.5).div(cascadeCount).toConst()
-          const history = (
-            historyNode.sample(vec3(prevUv, w)) as Texture3DNode
-          )
+          const history = (historyNode.sample(vec3(prevUv, w)) as Texture3DNode)
             .level(float(0))
             .toConst()
           const clippedHistory = varianceClippingSlice(
@@ -654,7 +641,7 @@ export class CloudShadowNode extends TempNode {
       textureStore(writeTexture, globalId, outputColor)
     })()
       .compute(
-        0, // Dispatched with an explicit dispatch size
+        1, // Normally overridden by update() with the sized dispatch.
         [8, 8, 1]
       )
       .setName('CloudShadowNode.Resolve')
@@ -674,7 +661,7 @@ export class CloudShadowNode extends TempNode {
       textureStore(resolveTextureB, globalId, vec4(0))
     })()
       .compute(
-        0, // Dispatched with an explicit dispatch size
+        1, // Normally overridden by update() with the sized dispatch.
         [8, 8, 1]
       )
       .setName('CloudShadowNode.ClearHistory')
@@ -697,7 +684,14 @@ export class CloudShadowNode extends TempNode {
     const { shadowMaps } = this
     const { width, height } = shadowMaps.mapSize
     const depth = shadowMaps.cascadeCount
-    if (width !== this.width || height !== this.height || depth !== this.depth) {
+    if (width <= 0 || height <= 0 || depth <= 0) {
+      return
+    }
+    if (
+      width !== this.width ||
+      height !== this.height ||
+      depth !== this.depth
+    ) {
       if (depth !== this.depth) {
         // The resolve kernel bakes the cascade count:
         this.disposeComputeNodes()

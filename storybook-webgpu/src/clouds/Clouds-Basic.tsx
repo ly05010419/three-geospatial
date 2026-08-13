@@ -96,6 +96,17 @@ const Content: FC<StoryProps> = () => {
     () => aerialPerspective(colorNode, depthNode),
     [colorNode, depthNode]
   )
+  useMemo(() => {
+    const shadowLengthNode = cloudsNode.getShadowLengthNode()
+    aerialNode.shadowLengthNode = shadowLengthNode
+    const skyNode = aerialNode.skyNode as {
+      shadowLengthNode?: typeof shadowLengthNode
+    } | null
+    if (skyNode != null) {
+      skyNode.shadowLengthNode = shadowLengthNode
+    }
+    return shadowLengthNode
+  }, [aerialNode, cloudsNode])
 
   // The clouds output is premultiplied (rgb = radiance, a = coverage), and
   // composites over the scene exactly like cloudsEffect.frag in the WebGL
@@ -144,6 +155,19 @@ const Content: FC<StoryProps> = () => {
     }
   )
 
+  // M4 bisect toggle: false renders the march pass at full resolution and
+  // uses the non-upscale temporal resolve path from cloudsResolve.frag.
+  useTransientControl(
+    ({ temporalUpscale }: StoryArgs) => temporalUpscale,
+    temporalUpscale => {
+      if (cloudsNode.temporalUpscale !== temporalUpscale) {
+        cloudsNode.temporalUpscale = temporalUpscale
+        cloudsNode.resetHistory()
+        postProcessing.needsUpdate = true
+      }
+    }
+  )
+
   // Tone mapping controls:
   useToneMappingControls(toneMappingNode, () => {
     postProcessing.needsUpdate = true
@@ -157,10 +181,16 @@ interface StoryProps {}
 interface StoryArgs extends ToneMappingArgs, RendererArgs {
   coverage: number
   bsm: boolean
+  temporalUpscale: boolean
 }
 
 export const Story: StoryFC<StoryProps, StoryArgs> = props => (
   <WebGPUCanvas
+    renderer={{
+      requiredLimits: {
+        maxSampledTexturesPerShaderStage: 32
+      }
+    }}
     camera={{
       near: 1,
       far: 4e5,
@@ -177,6 +207,7 @@ export const Story: StoryFC<StoryProps, StoryArgs> = props => (
 Story.args = {
   coverage: 0.3,
   bsm: true,
+  temporalUpscale: true,
   ...toneMappingArgs({
     toneMappingExposure: 10
   }),
@@ -190,6 +221,11 @@ Story.argTypes = {
       min: 0,
       max: 1,
       step: 0.01
+    }
+  },
+  temporalUpscale: {
+    control: {
+      type: 'boolean'
     }
   },
   ...toneMappingArgTypes(),

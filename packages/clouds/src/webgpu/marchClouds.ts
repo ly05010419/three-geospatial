@@ -64,11 +64,16 @@ export type SampleShadowOpticalDepthFn = ReturnType<
 // Coerce texture inputs into texture nodes. Plain textures are wrapped;
 // texture nodes (e.g. of the procedural texture nodes) pass through:
 export const toTextureNode = (value: Texture | TextureNode): TextureNode =>
-  value instanceof TextureNode ? value : texture(value)
+  (value as TextureNode).isTextureNode === true
+    ? (value as TextureNode)
+    : texture(value as Texture)
 
 export const toTexture3DNode = (
   value: Data3DTexture | Texture3DNode
-): Texture3DNode => (value instanceof TextureNode ? value : texture3D(value))
+): Texture3DNode =>
+  (value as Texture3DNode).isTexture3DNode === true
+    ? (value as Texture3DNode)
+    : texture3D(value as Data3DTexture)
 
 // Ported from: packages/core/src/shaders/generators.glsl in the WebGL version,
 // which has no counterpart in the core WebGPU library. Used by the "uv" debug
@@ -224,11 +229,12 @@ export interface SunSkyIrradianceCache {
   cloudsIrradiance: CloudsIrradiance
 }
 
-// Vertex-stage irradiance cache, ported from sampleSunSkyIrradiance() in
-// clouds.vert. The given position is the camera position in ECEF with the
-// altitude correction applied, which is constant across the fullscreen
-// triangle, so the varying interpolation is exact. Unused nodes are pruned
-// from the graph.
+// Irradiance cache, ported from sampleSunSkyIrradiance() in clouds.vert. The
+// given position is the camera position in ECEF with the altitude correction
+// applied, which is constant across the fullscreen triangle. Keep these values
+// in fragment instead of emitting six vec3 varyings; the result is
+// mathematically identical for constant inputs and stays within WebGPU's
+// inter-stage limit.
 export const createSunSkyIrradianceCache = (
   correctedPositionECEF: Node<'vec3'>,
   {
@@ -255,14 +261,14 @@ export const createSunSkyIrradianceCache = (
   )
   return {
     groundIrradiance: {
-      sun: groundIlluminance.get('direct').toVertexStage(),
-      sky: groundIlluminance.get('indirect').toVertexStage()
+      sun: groundIlluminance.get('direct'),
+      sky: groundIlluminance.get('indirect')
     },
     cloudsIrradiance: {
-      minSun: minIlluminance.get('direct').toVertexStage(),
-      minSky: minIlluminance.get('indirect').toVertexStage(),
-      maxSun: maxIlluminance.get('direct').toVertexStage(),
-      maxSky: maxIlluminance.get('indirect').toVertexStage()
+      minSun: minIlluminance.get('direct'),
+      minSky: minIlluminance.get('indirect'),
+      maxSun: maxIlluminance.get('direct'),
+      maxSky: maxIlluminance.get('indirect')
     }
   }
 }
@@ -305,6 +311,10 @@ export interface MarchCloudsUniforms {
   // Secondary raymarch
   maxIterationCountToSun: UniformNode<number>
   maxIterationCountToGround: UniformNode<number>
+
+  // Shadow length
+  maxShadowLengthIterationCount: UniformNode<number>
+  minShadowLengthStepSize: UniformNode<number>
 }
 
 // The BSM consumption dependencies. Absent in the M2-only mode (bsm: false on
@@ -668,6 +678,64 @@ export const createMarchClouds = ({
 }
 
 export type MarchCloudsFn = ReturnType<typeof createMarchClouds>
+
+export interface MarchShadowLengthDependencies {
+  perspectiveStepScale: UniformNode<number>
+  maxShadowLengthIterationCount: UniformNode<number>
+  minShadowLengthStepSize: UniformNode<number>
+  sampleShadowOpticalDepth: SampleShadowOpticalDepthFn
+}
+
+type MarchShadowLengthArgs = [
+  rayOrigin: Node<'vec3'>,
+  rayDirection: Node<'vec3'>,
+  rayNearFar: Node<'vec2'>,
+  jitter: Node<'float'>
+]
+
+export const createMarchShadowLength = ({
+  perspectiveStepScale,
+  maxShadowLengthIterationCount,
+  minShadowLengthStepSize,
+  sampleShadowOpticalDepth
+}: MarchShadowLengthDependencies): ShaderNodeFn<
+  ProxiedTuple<MarchShadowLengthArgs>
+> =>
+  FnVar(
+    (
+      rayOrigin: Node<'vec3'>,
+      rayDirection: Node<'vec3'>,
+      rayNearFar: Node<'vec2'>,
+      jitter: Node<'float'>
+    ) => {
+      const shadowLength = float(0).toVar()
+      const maxRayDistance = rayNearFar.y.sub(rayNearFar.x).toConst()
+      const stepSize = minShadowLengthStepSize.toVar()
+      const rayDistance = stepSize.mul(jitter).toVar()
+      // The WebGL shader declares attenuationFactor/attenuation here but
+      // never updates attenuation. Keep the effective attenuation at 1.
+
+      Loop(maxShadowLengthIterationCount, () => {
+        If(rayDistance.greaterThan(maxRayDistance), () => {
+          Break()
+        })
+        const position = rayDirection.mul(rayDistance).add(rayOrigin).toConst()
+        const opticalDepth = sampleShadowOpticalDepth(
+          position,
+          float(0),
+          float(0),
+          jitter
+        ).toConst()
+        shadowLength.addAssign(
+          exp(opticalDepth.negate()).oneMinus().mul(stepSize)
+        )
+        stepSize.mulAssign(perspectiveStepScale)
+        rayDistance.addAssign(stepSize)
+      })
+
+      return shadowLength
+    }
+  )
 
 export interface ApproximateHazeDependencies {
   phaseFunctionOptions: PhaseFunctionOptions

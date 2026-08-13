@@ -1,6 +1,7 @@
 // Ported from the ray-spheres intersection portion of:
 // three-geospatial/packages/clouds/src/shaders/clouds.frag
-// (rayIntersectsGround, getIntersections, getRayNearFar, getHazeRayNearFar)
+// (rayIntersectsGround, getIntersections, getRayNearFar, getShadowRayNearFar,
+// getHazeRayNearFar)
 // and the vec4-radii overloads of:
 // three-geospatial/packages/core/src/shaders/raySphereIntersection.glsl
 // getShadowRayNearFar arrives with the shadow length support at M4.
@@ -126,6 +127,45 @@ export const getRayNearFar = /*#__PURE__*/ FnLayout({
         nearFar.y.assign(first.y)
       })
     })
+  return nearFar
+})
+
+export const getShadowRayNearFar = /*#__PURE__*/ FnLayout({
+  name: 'getShadowRayNearFar',
+  type: 'vec2',
+  inputs: [
+    { name: 'ground', type: 'bool' },
+    { name: 'first', type: 'vec4' },
+    { name: 'second', type: 'vec4' },
+    { name: 'cameraHeight', type: 'float' },
+    { name: 'cameraNear', type: 'float' },
+    { name: 'shadowTopHeight', type: 'float' },
+    { name: 'maxShadowLengthRayDistance', type: 'float' }
+  ]
+})(([
+  ground,
+  first,
+  second,
+  cameraHeight,
+  cameraNear,
+  shadowTopHeight,
+  maxShadowLengthRayDistance
+]) => {
+  const nearFar = vec2().toVar()
+  If(cameraHeight.lessThan(shadowTopHeight), () => {
+    If(ground, () => {
+      nearFar.assign(vec2(cameraNear, first.x))
+    }).Else(() => {
+      nearFar.assign(vec2(cameraNear, second.w))
+    })
+  }).Else(() => {
+    nearFar.assign(vec2(first.w, second.w))
+    If(ground, () => {
+      // Clamp the ray at the ground:
+      nearFar.y.assign(first.x)
+    })
+  })
+  nearFar.y.assign(min(nearFar.y, maxShadowLengthRayDistance))
   return nearFar
 })
 

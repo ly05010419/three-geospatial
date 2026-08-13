@@ -14,6 +14,7 @@ import {
   HalfFloatType,
   LinearFilter,
   Matrix4,
+  RedFormat,
   RenderTarget,
   RGBAFormat,
   Vector2,
@@ -35,9 +36,11 @@ import {
   ivec3,
   min,
   mix,
+  mrt,
   positionGeometry,
   pow,
   screenUV,
+  struct,
   uniform,
   vec2,
   vec3,
@@ -48,6 +51,7 @@ import {
   QuadMesh,
   RendererUtils,
   TempNode,
+  type MRTNode,
   type NodeBuilder,
   type NodeFrame,
   type Texture3DNode,
@@ -62,14 +66,10 @@ import {
   type AtmosphereContext
 } from '@takram/three-atmosphere/webgpu'
 import { Geodetic, reinterpretType } from '@takram/three-geospatial'
-import {
-  depthToViewZ,
-  outputTexture,
-  turbo,
-  type Node
-} from '@takram/three-geospatial/webgpu'
+import { depthToViewZ, turbo, type Node } from '@takram/three-geospatial/webgpu'
 
 import { defaults } from '../qualityPresets'
+import { bayerOffsets } from './bayer'
 import {
   getGlobeUv,
   getMipLevel,
@@ -85,15 +85,21 @@ import {
   createApproximateHaze,
   createMarchClouds,
   createMarchOpticalDepth,
+  createMarchShadowLength,
   createSunSkyIrradianceCache,
   toTexture3DNode,
   toTextureNode,
   type MarchCloudsShadowDependencies
 } from './marchClouds'
+import {
+  cloudOutputTexture,
+  type CloudOutputTextureNode
+} from './outputTextures'
 import type { PhaseFunctionOptions } from './phaseFunction'
 import {
   getHazeRayNearFar,
   getRayNearFar,
+  getShadowRayNearFar,
   rayIntersectsGround,
   raySpheresIntersections
 } from './rayIntersections'
@@ -109,14 +115,29 @@ const { resetRendererState, restoreRendererState } = RendererUtils
 const vectorScratch = /*#__PURE__*/ new Vector3()
 const geodeticScratch = /*#__PURE__*/ new Geodetic()
 
-export type CloudsMarchDebugShow = 'none' | 'uv' | 'sampleCount' | 'frontDepth'
+export type CloudsMarchDebugShow =
+  | 'none'
+  | 'uv'
+  | 'sampleCount'
+  | 'frontDepth'
+  | 'shadowLength'
 
 const debugShowValues: readonly CloudsMarchDebugShow[] = [
   'none',
   'uv',
   'sampleCount',
-  'frontDepth'
+  'frontDepth',
+  'shadowLength'
 ]
+
+const cloudsMarchOutputStruct = /*#__PURE__*/ struct(
+  {
+    output: 'vec4',
+    depthVelocity: 'vec4',
+    shadowLength: 'vec4'
+  },
+  'CloudsMarchOutput'
+)
 
 export interface CloudsMarchNodeParameters {
   // The scene depth, read to clamp the ray at the scene. Without it the rays
@@ -181,6 +202,8 @@ export class CloudsMarchNode extends TempNode {
   // in the WebGL version. They are plain static options here by design:
   powder = true
   groundBounce = true
+  temporalUpscale = true
+  lightShafts: boolean = defaults.lightShafts
   // Ideally these should be uniforms, but the phase function is highly
   // optimizable and used many times, so they are baked as constants:
   scatterAnisotropy1 = 0.7
@@ -194,10 +217,10 @@ export class CloudsMarchNode extends TempNode {
   )
   readonly inverseProjectionMatrix: UniformNode<Matrix4> = uniform(
     new Matrix4()
-  ).setName('inverseProjectionMatrix')
+  ).setName('cloudsMarchInverseProjectionMatrix')
   readonly inverseViewMatrix: UniformNode<Matrix4> = uniform(
     new Matrix4()
-  ).setName('inverseViewMatrix')
+  ).setName('cloudsMarchInverseViewMatrix')
   readonly reprojectionMatrix: UniformNode<Matrix4> = uniform(
     new Matrix4()
   ).setName('reprojectionMatrix')
@@ -210,8 +233,10 @@ export class CloudsMarchNode extends TempNode {
   readonly resolution: UniformNode<Vector2> = uniform(new Vector2()).setName(
     'resolution'
   )
-  readonly cameraNear: UniformNode<number> = uniform(0).setName('cameraNear')
-  readonly cameraFar: UniformNode<number> = uniform(0).setName('cameraFar')
+  readonly cameraNear: UniformNode<number> =
+    uniform(0).setName('cloudsMarchCameraNear')
+  readonly cameraFar: UniformNode<number> =
+    uniform(0).setName('cloudsMarchCameraFar')
   readonly cameraHeight: UniformNode<number> =
     uniform(0).setName('cameraHeight')
   // Set this before calling update(). CloudsNode drives it with its frame
@@ -279,6 +304,18 @@ export class CloudsMarchNode extends TempNode {
     defaults.clouds.secondaryStepScale
   ).setName('secondaryStepScale')
 
+  // Shadow length
+  readonly maxShadowLengthIterationCount: UniformNode<number> = uniform(
+    defaults.clouds.maxShadowLengthIterationCount,
+    'int'
+  ).setName('maxShadowLengthIterationCount')
+  readonly minShadowLengthStepSize: UniformNode<number> = uniform(
+    defaults.clouds.minShadowLengthStepSize
+  ).setName('minShadowLengthStepSize')
+  readonly maxShadowLengthRayDistance: UniformNode<number> = uniform(
+    defaults.clouds.maxShadowLengthRayDistance
+  ).setName('maxShadowLengthRayDistance')
+
   // Haze
   readonly hazeDensityScale: UniformNode<number> =
     uniform(3e-5).setName('hazeDensityScale')
@@ -294,8 +331,14 @@ export class CloudsMarchNode extends TempNode {
   private readonly renderTarget: RenderTarget
   private readonly material = new NodeMaterial()
   private readonly mesh = new QuadMesh(this.material)
-  private readonly textureNode: TextureNode
+  private readonly textureNodes: {
+    output: CloudOutputTextureNode
+    depthVelocity: CloudOutputTextureNode
+    shadowLength: CloudOutputTextureNode
+  }
   private rendererState?: RendererUtils.RendererState
+  private targetWidth = 0
+  private targetHeight = 0
 
   // Copies of the camera matrices for the reprojection matrices, which the
   // temporal resolve consumes in M4. copyCameraSettings() can be called
@@ -333,21 +376,30 @@ export class CloudsMarchNode extends TempNode {
     this.shadowUniforms = shadowUniforms
     this.frame = frame ?? uniform(0, 'int').setName('frame')
 
-    // M4 turns this into a ¼-resolution MRT (color + depthVelocity +
-    // shadowLength with RedFormat) target:
     this.renderTarget = new RenderTarget(1, 1, {
+      count: 3,
       depthBuffer: false,
       type: HalfFloatType,
       format: RGBAFormat
     })
-    const outputTextureInstance = this.renderTarget.texture
-    outputTextureInstance.minFilter = LinearFilter
-    outputTextureInstance.magFilter = LinearFilter
-    outputTextureInstance.generateMipmaps = false
-    outputTextureInstance.name = 'CloudsMarchNode.Output'
+    const [outputTexture, depthVelocityTexture, shadowLengthTexture] =
+      this.renderTarget.textures
+    for (const texture of this.renderTarget.textures) {
+      texture.minFilter = LinearFilter
+      texture.magFilter = LinearFilter
+      texture.generateMipmaps = false
+    }
+    outputTexture.name = 'output'
+    depthVelocityTexture.name = 'depthVelocity'
+    shadowLengthTexture.name = 'shadowLength'
+    shadowLengthTexture.format = RedFormat
 
     this.material.name = 'CloudsMarchNode.Material'
-    this.textureNode = outputTexture(this, this.renderTarget.texture)
+    this.textureNodes = {
+      output: cloudOutputTexture(this, outputTexture),
+      depthVelocity: cloudOutputTexture(this, depthVelocityTexture),
+      shadowLength: cloudOutputTexture(this, shadowLengthTexture)
+    }
   }
 
   override customCacheKey(): number {
@@ -364,6 +416,8 @@ export class CloudsMarchNode extends TempNode {
       +this.accuratePhaseFunction,
       +this.powder,
       +this.groundBounce,
+      +this.temporalUpscale,
+      +this.lightShafts,
       this.multiScatteringOctaves,
       // The hash function coerces parameters to int32, thus fractions and
       // strings must be encoded manually:
@@ -375,22 +429,35 @@ export class CloudsMarchNode extends TempNode {
     )
   }
 
-  // The name parameter widens to 'depthVelocity' and 'shadowLength' when the
-  // MRT outputs arrive at M4:
-  getTextureNode(name: 'output' = 'output'): TextureNode {
-    invariant(name === 'output')
-    return this.textureNode
+  getTextureNode(
+    name: 'output' | 'depthVelocity' | 'shadowLength' = 'output'
+  ): TextureNode {
+    return this.textureNodes[name]
   }
 
   setSize(width: number, height: number): this {
     const { renderTarget } = this
-    if (width !== renderTarget.width || height !== renderTarget.height) {
-      renderTarget.setSize(width, height)
-      this.resolution.value.set(width, height)
-      // The render target size always matches the output size in the full
-      // resolution mode of M2. M4 sets the ratio of the upscaled resolution
-      // (a multiple of 4) to the target size here:
-      this.targetUvScale.value.setScalar(1)
+    const lowWidth = this.temporalUpscale ? Math.ceil(width / 4) : width
+    const lowHeight = this.temporalUpscale ? Math.ceil(height / 4) : height
+    if (
+      lowWidth !== renderTarget.width ||
+      lowHeight !== renderTarget.height ||
+      width !== this.targetWidth ||
+      height !== this.targetHeight
+    ) {
+      this.targetWidth = width
+      this.targetHeight = height
+      renderTarget.setSize(lowWidth, lowHeight)
+      if (this.temporalUpscale) {
+        this.resolution.value.set(lowWidth * 4, lowHeight * 4)
+        this.targetUvScale.value.set(
+          (lowWidth * 4) / width,
+          (lowHeight * 4) / height
+        )
+      } else {
+        this.resolution.value.set(width, height)
+        this.targetUvScale.value.setScalar(1)
+      }
 
       // Invalidate reprojection:
       this.previousProjectionMatrix = undefined
@@ -399,8 +466,8 @@ export class CloudsMarchNode extends TempNode {
     return this
   }
 
-  // Ported from CloudsMaterial.copyCameraSettings(), with the temporal
-  // upscaling (Bayer projection jitter) path omitted until M4:
+  // Ported from CloudsMaterial.copyCameraSettings(), including the temporal
+  // upscaling Bayer projection jitter path:
   private copyCameraSettings(camera: Camera): void {
     const atmosphereContext = this.atmosphereContext
     invariant(atmosphereContext != null)
@@ -413,15 +480,38 @@ export class CloudsMarchNode extends TempNode {
     const previousViewMatrix =
       this.previousViewMatrix ?? camera.matrixWorldInverse
 
-    this.temporalJitter.value.setScalar(0)
-    this.mipLevelScale.value = 1
-    this.inverseProjectionMatrix.value.copy(camera.projectionMatrixInverse)
-    this.reprojectionMatrix.value
-      .copy(previousProjectionMatrix)
-      .multiply(previousViewMatrix)
-    this.viewReprojectionMatrix.value
-      .copy(this.reprojectionMatrix.value)
-      .multiply(this.inverseViewMatrix.value)
+    if (this.temporalUpscale) {
+      const frame = this.frame.value % 16
+      const { resolution } = this
+      const offset = bayerOffsets[frame]
+      const dx = ((offset.x - 0.5) / resolution.value.x) * 4
+      const dy = ((offset.y - 0.5) / resolution.value.y) * 4
+      this.temporalJitter.value.set(dx, dy)
+      this.mipLevelScale.value = 0.25
+      this.inverseProjectionMatrix.value.copy(camera.projectionMatrix)
+      this.inverseProjectionMatrix.value.elements[8] += dx * 2
+      this.inverseProjectionMatrix.value.elements[9] += dy * 2
+      this.inverseProjectionMatrix.value.invert()
+
+      // Jitter the previous projection matrix with the current jitter.
+      this.reprojectionMatrix.value.copy(previousProjectionMatrix)
+      this.reprojectionMatrix.value.elements[8] += dx * 2
+      this.reprojectionMatrix.value.elements[9] += dy * 2
+      this.reprojectionMatrix.value.multiply(previousViewMatrix)
+      this.viewReprojectionMatrix.value
+        .copy(this.reprojectionMatrix.value)
+        .multiply(this.inverseViewMatrix.value)
+    } else {
+      this.temporalJitter.value.setScalar(0)
+      this.mipLevelScale.value = 1
+      this.inverseProjectionMatrix.value.copy(camera.projectionMatrixInverse)
+      this.reprojectionMatrix.value
+        .copy(previousProjectionMatrix)
+        .multiply(previousViewMatrix)
+      this.viewReprojectionMatrix.value
+        .copy(this.reprojectionMatrix.value)
+        .multiply(this.inverseViewMatrix.value)
+    }
 
     reinterpretType<PerspectiveCamera | OrthographicCamera>(camera)
     this.cameraNear.value = camera.near
@@ -472,9 +562,10 @@ export class CloudsMarchNode extends TempNode {
     builder: NodeBuilder,
     atmosphereContext: AtmosphereContext,
     camera: Camera
-  ): Node {
+  ): MRTNode {
     const { worldToUnit } = atmosphereContext.parametersNode
-    const { matrixWorldToECEF, sunDirectionECEF } = atmosphereContext
+    const { matrixWorldToECEF, matrixECEFToWorld, sunDirectionECEF } =
+      atmosphereContext
     const bottomRadius = float(atmosphereContext.parameters.bottomRadius)
     const altitudeCorrection: Node<'vec3'> = atmosphereContext.correctAltitude
       ? atmosphereContext.altitudeCorrectionECEF
@@ -486,8 +577,9 @@ export class CloudsMarchNode extends TempNode {
     const perspective = camera.isPerspectiveCamera === true
     const logarithmic = builder.renderer.logarithmicDepthBuffer
 
-    // Vertex-stage ray setup, ported from clouds.vert. All varyings are
-    // interpolated across the fullscreen triangle:
+    // Vertex-stage ray setup, ported from clouds.vert. Only genuinely
+    // per-texel values are interpolated across the fullscreen triangle; values
+    // constant across the quad stay in fragment to fit WebGPU varying limits.
     const viewPosition = this.inverseProjectionMatrix.mul(
       vec4(positionGeometry, 1)
     ).xyz
@@ -498,21 +590,19 @@ export class CloudsMarchNode extends TempNode {
     const cameraPositionECEF = matrixWorldToECEF.mul(
       vec4(this.cameraPosition, 1)
     ).xyz
-    const vCameraPosition = cameraPositionECEF.toVertexStage()
     // Direction to the center of the screen:
-    const vCameraDirection = matrixWorldToECEF
+    const cameraDirectionECEF = matrixWorldToECEF
       .mul(vec4(worldCameraDirection, 0))
-      .xyz.toVertexStage()
+      .xyz.toConst()
     // Direction to the texel:
     const vRayDirection = matrixWorldToECEF
       .mul(vec4(worldDirection, 0))
       .xyz.toVertexStage()
-    // M4 adds vViewPosition (viewPosition.toVertexStage()) for the no-hit
-    // view-space reprojection.
+    const vViewPosition = viewPosition.toVertexStage()
 
-    // Vertex-stage irradiance cache, ported from sampleSunSkyIrradiance() in
-    // clouds.vert. The cache is used by the haze always, and by the clouds
-    // unless accurateSunSkyLight is on:
+    // Constant-over-quad irradiance cache, ported from
+    // sampleSunSkyIrradiance() in clouds.vert. The cache is used by the haze
+    // always, and by the clouds unless accurateSunSkyLight is on:
     const { groundIrradiance, cloudsIrradiance } = createSunSkyIrradianceCache(
       cameraPositionECEF.add(altitudeCorrection),
       { bottomRadius, worldToUnit, sunDirectionECEF, minHeight, maxHeight }
@@ -555,28 +645,32 @@ export class CloudsMarchNode extends TempNode {
     // clouds.frag via shadowSampling.ts. The dependencies map onto the nodes
     // this pass already owns and the atmosphere context:
     const { shadowBuffer, shadowUniforms } = this
-    const shadow: MarchCloudsShadowDependencies | null =
+    const sampleShadowOpticalDepthFn =
       this.bsm && shadowBuffer != null && shadowUniforms != null
+        ? sampleShadowOpticalDepth(
+            shadowBuffer,
+            shadowUniforms,
+            {
+              bottomRadius,
+              sunDirectionECEF,
+              shadowTopHeight,
+              matrixECEFToWorld,
+              altitudeCorrectionECEF: altitudeCorrection,
+              viewMatrix: this.viewMatrix,
+              cameraNear: this.cameraNear,
+              temporalJitter: this.temporalJitter,
+              resolution: this.resolution
+            },
+            {
+              cascadeCount: this.shadowCascadeCount,
+              shadowSampleCount: this.shadowSampleCount
+            }
+          )
+        : null
+    const shadow: MarchCloudsShadowDependencies | null =
+      sampleShadowOpticalDepthFn != null && shadowUniforms != null
         ? {
-            sampleShadowOpticalDepth: sampleShadowOpticalDepth(
-              shadowBuffer,
-              shadowUniforms,
-              {
-                bottomRadius,
-                sunDirectionECEF,
-                shadowTopHeight,
-                matrixECEFToWorld: atmosphereContext.matrixECEFToWorld,
-                altitudeCorrectionECEF: altitudeCorrection,
-                viewMatrix: this.viewMatrix,
-                cameraNear: this.cameraNear,
-                temporalJitter: this.temporalJitter,
-                resolution: this.resolution
-              },
-              {
-                cascadeCount: this.shadowCascadeCount,
-                shadowSampleCount: this.shadowSampleCount
-              }
-            ),
+            sampleShadowOpticalDepth: sampleShadowOpticalDepthFn,
             maxShadowFilterRadius: shadowUniforms.maxShadowFilterRadius
           }
         : null
@@ -630,9 +724,18 @@ export class CloudsMarchNode extends TempNode {
           groundIrradiance
         })
       : null
+    const marchShadowLength =
+      this.lightShafts && sampleShadowOpticalDepthFn != null
+        ? createMarchShadowLength({
+            perspectiveStepScale: this.perspectiveStepScale,
+            maxShadowLengthIterationCount: this.maxShadowLengthIterationCount,
+            minShadowLengthStepSize: this.minShadowLengthStepSize,
+            sampleShadowOpticalDepth: sampleShadowOpticalDepthFn
+          })
+        : null
 
-    return Fn(() => {
-      const cameraPosition = vCameraPosition.add(altitudeCorrection).toConst()
+    const marchedOutput = Fn(() => {
+      const cameraPosition = cameraPositionECEF.add(altitudeCorrection).toConst()
       const rayDirection = vRayDirection.normalize().toConst()
       const cosTheta = dot(sunDirectionECEF, rayDirection).toConst()
 
@@ -659,6 +762,19 @@ export class CloudsMarchNode extends TempNode {
         this.maxRayDistance
       ).toVar()
 
+      const shadowRayNearFar =
+        this.lightShafts && marchShadowLength != null
+          ? getShadowRayNearFar(
+              ground,
+              first,
+              second,
+              this.cameraHeight,
+              this.cameraNear,
+              shadowTopHeight,
+              this.maxShadowLengthRayDistance
+            ).toVar()
+          : null
+
       const hazeRayNearFar = this.haze
         ? getHazeRayNearFar(
             ground,
@@ -674,6 +790,7 @@ export class CloudsMarchNode extends TempNode {
       // target size (targetUvScale = 1, temporalJitter = 0). The scene view Z
       // is derived here again in M4 for the no-hit reprojection:
       const depthNode = this.depthNode
+      const sceneViewZ = float(0).toVar()
       if (depthNode != null) {
         const depthUv = screenUV
           .mul(this.targetUvScale)
@@ -685,12 +802,18 @@ export class CloudsMarchNode extends TempNode {
             perspective,
             logarithmic
           })
+          sceneViewZ.assign(viewZ)
           rayDistanceToScene.assign(
-            viewZ.negate().div(dot(rayDirection, vCameraDirection))
+            viewZ.negate().div(dot(rayDirection, cameraDirectionECEF))
           )
         })
         If(rayDistanceToScene.greaterThan(0), () => {
           rayNearFar.y.assign(min(rayNearFar.y, rayDistanceToScene))
+          if (shadowRayNearFar != null) {
+            shadowRayNearFar.y.assign(
+              min(shadowRayNearFar.y, rayDistanceToScene)
+            )
+          }
           if (hazeRayNearFar != null) {
             hazeRayNearFar.y.assign(min(hazeRayNearFar.y, rayDistanceToScene))
           }
@@ -704,6 +827,9 @@ export class CloudsMarchNode extends TempNode {
 
       const color = vec4(0).toVar()
       const frontDepth = rayNearFar.y.toVar()
+      const depthVelocity = vec3(0).toVar()
+      const shadowLength = float(0).toVar()
+      const hitClouds = bool(false).toVar()
 
       // The debug views replicate the early returns of the WebGL version:
       // pixels with the debug output assigned bypass the haze compositing:
@@ -762,10 +888,30 @@ export class CloudsMarchNode extends TempNode {
             // Front depth will be -1 when no samples are accumulated:
             const marchedFrontDepth = marched.get('frontDepth').toConst()
             If(marchedFrontDepth.greaterThanEqual(0), () => {
+              hitClouds.assign(bool(true))
               frontDepth.assign(rayNearFar.x.add(marchedFrontDepth))
 
-              // M4 clamps the shadow length ray at the clouds and derives the
-              // shadow length before applying the aerial perspective here.
+              if (shadowRayNearFar != null && marchShadowLength != null) {
+                // Clamp the shadow length ray at the clouds, interpolated by
+                // alpha for smoother edges.
+                shadowRayNearFar.y.assign(
+                  mix(
+                    shadowRayNearFar.y,
+                    min(frontDepth, shadowRayNearFar.y),
+                    color.a
+                  )
+                )
+                If(shadowRayNearFar.greaterThanEqual(vec2(0)).all(), () => {
+                  shadowLength.assign(
+                    marchShadowLength(
+                      rayDirection.mul(shadowRayNearFar.x).add(cameraPosition),
+                      rayDirection,
+                      shadowRayNearFar,
+                      stbn
+                    )
+                  )
+                })
+              }
 
               if (hazeRayNearFar != null) {
                 // Clamp the haze ray at the clouds, interpolated by the alpha
@@ -780,7 +926,7 @@ export class CloudsMarchNode extends TempNode {
               }
 
               // applyAerialPerspective(). The shadow length is always 0 in
-              // M2:
+              // non-light-shafts mode:
               const frontPosition = rayDirection
                 .mul(frontDepth)
                 .add(cameraPosition)
@@ -788,7 +934,7 @@ export class CloudsMarchNode extends TempNode {
               const luminanceTransfer = getIndirectLuminanceToPoint(
                 cameraPosition.mul(worldToUnit),
                 frontPosition.mul(worldToUnit),
-                float(0),
+                shadowLength.mul(worldToUnit),
                 sunDirectionECEF
               ).toConst()
               const inscatter = luminanceTransfer.get('luminance')
@@ -797,14 +943,49 @@ export class CloudsMarchNode extends TempNode {
                 color.rgb.mul(transmittance).add(inscatter.mul(color.a))
               )
 
-              // M4 derives the depth/velocity MRT output from the front
-              // position here.
+              const frontPositionWorld = matrixECEFToWorld
+                .mul(vec4(frontPosition.sub(altitudeCorrection), 1))
+                .xyz.toConst()
+              const prevClip = this.reprojectionMatrix
+                .mul(vec4(frontPositionWorld, 1))
+                .toVar()
+              prevClip.divAssign(prevClip.w)
+              const prevUv = prevClip.xy.mul(0.5).add(0.5).toConst()
+              const velocity = screenUV.sub(prevUv).toConst()
+              depthVelocity.assign(vec3(frontDepth, velocity))
             })
           }
         }
       })
 
-      // M4 derives the no-hit view-space reprojection velocity here.
+      If(hitClouds.not(), () => {
+        if (shadowRayNearFar != null && marchShadowLength != null) {
+          If(shadowRayNearFar.greaterThanEqual(vec2(0)).all(), () => {
+            shadowLength.assign(
+              marchShadowLength(
+                rayDirection.mul(shadowRayNearFar.x).add(cameraPosition),
+                rayDirection,
+                shadowRayNearFar,
+                stbn
+              )
+            )
+          })
+        }
+
+        // Velocity for temporal resolution. Here reproject in view space to
+        // greatly reduce precision errors.
+        frontDepth.assign(
+          sceneViewZ.lessThan(0).select(sceneViewZ.negate(), this.cameraFar)
+        )
+        const frontView = vViewPosition.mul(frontDepth).toConst()
+        const prevClip = this.viewReprojectionMatrix
+          .mul(vec4(frontView, 1))
+          .toVar()
+        prevClip.divAssign(prevClip.w)
+        const prevUv = prevClip.xy.mul(0.5).add(0.5).toConst()
+        const velocity = screenUV.sub(prevUv).toConst()
+        depthVelocity.assign(vec3(frontDepth, velocity))
+      })
 
       if (this.debugShow === 'frontDepth') {
         invariant(debug != null)
@@ -818,14 +999,35 @@ export class CloudsMarchNode extends TempNode {
           rayDirection,
           hazeRayNearFar.y.sub(hazeRayNearFar.x),
           cosTheta,
-          float(0) // The shadow length is always 0 in M2.
+          shadowLength
         ).toConst()
         color.rgb.assign(mix(color.rgb, haze.rgb, haze.a))
         color.a.assign(color.a.mul(haze.a.oneMinus()).add(haze.a))
       }
 
-      return debug != null ? debug.done.select(debug.output, color) : color
-    })()
+      let outputColor =
+        debug != null ? debug.done.select(debug.output, color) : color
+      if (this.debugShow === 'shadowLength') {
+        outputColor = vec4(turbo(shadowLength.mul(worldToUnit).mul(0.05)), 1)
+      }
+
+      return cloudsMarchOutputStruct(
+        outputColor,
+        vec4(depthVelocity, 0),
+        vec4(
+          this.lightShafts ? shadowLength.mul(worldToUnit) : float(0),
+          0,
+          0,
+          1
+        )
+      )
+    })().toConst()
+
+    return mrt({
+      output: marchedOutput.get('output'),
+      depthVelocity: marchedOutput.get('depthVelocity'),
+      shadowLength: marchedOutput.get('shadowLength')
+    })
   }
 
   override setup(builder: NodeBuilder): unknown {
@@ -838,7 +1040,7 @@ export class CloudsMarchNode extends TempNode {
     }
     this.camera = camera
 
-    this.material.fragmentNode = this.setupFragmentNode(
+    this.material.mrtNode = this.setupFragmentNode(
       builder,
       atmosphereContext,
       camera

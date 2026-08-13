@@ -25,7 +25,7 @@ import {
   type Camera,
   type PerspectiveCamera
 } from 'three'
-import { screenUV, texture, texture3D, uniform } from 'three/tsl'
+import { ivec2, screenCoordinate, texture, texture3D, uniform } from 'three/tsl'
 import {
   NodeUpdateType,
   TempNode,
@@ -45,8 +45,12 @@ import {
   DEFAULT_STBN_URL,
   lerp,
   parseUint8Array,
+  STBN_TEXTURE_DEPTH,
+  STBN_TEXTURE_HEIGHT,
+  STBN_TEXTURE_WIDTH,
   STBNLoader
 } from '@takram/three-geospatial'
+import type { Node } from '@takram/three-geospatial/webgpu'
 
 import type { CascadedShadowMaps } from '../CascadedShadowMaps'
 import { CloudLayers } from '../CloudLayers'
@@ -60,6 +64,7 @@ import {
 } from '../constants'
 import { CloudShadowNode } from './CloudShadowNode'
 import { CloudsMarchNode } from './CloudsMarchNode'
+import { CloudsResolveNode } from './CloudsResolveNode'
 import {
   createCloudLayerUniforms,
   createCloudParameterUniforms,
@@ -99,7 +104,7 @@ function loadDefault3DTexture(url: string, size: number): Data3DTexture {
   // (a Nearest-filtered Data3DTexture compiles into a clamped textureLoad
   // instead of repeat-wrapped linear sampling), so the sampler state must be
   // present on the texture from the moment it is created:
-  return configurePlaceholder3DTexture(texture)
+  return configurePlaceholder3DTexture(texture, size, size, size)
 }
 
 // The same sampler state as loadDefaultTexture() applies on load:
@@ -113,7 +118,30 @@ function configurePlaceholder2DTexture(texture: Texture): Texture {
 }
 
 // The same sampler state as loadDefault3DTexture() applies on load:
-function configurePlaceholder3DTexture(texture: Data3DTexture): Data3DTexture {
+function ensureUploadable3DTexture(
+  texture: Data3DTexture,
+  width: number,
+  height: number,
+  depth: number
+): void {
+  texture.image.width = width
+  texture.image.height = height
+  texture.image.depth = depth
+  if (texture.image.data == null) {
+    texture.image.data = new Uint8Array(width * height * depth)
+  }
+  texture.needsUpdate = true
+}
+
+function configurePlaceholder3DTexture(
+  texture: Data3DTexture,
+  width?: number,
+  height?: number,
+  depth?: number
+): Data3DTexture {
+  if (width != null && height != null && depth != null) {
+    ensureUploadable3DTexture(texture, width, height, depth)
+  }
   texture.format = RedFormat
   texture.minFilter = LinearFilter
   texture.magFilter = LinearFilter
@@ -129,6 +157,12 @@ function configurePlaceholder3DTexture(texture: Data3DTexture): Data3DTexture {
 function configurePlaceholderSTBNTexture(
   texture: Data3DTexture
 ): Data3DTexture {
+  ensureUploadable3DTexture(
+    texture,
+    STBN_TEXTURE_WIDTH,
+    STBN_TEXTURE_HEIGHT,
+    STBN_TEXTURE_DEPTH
+  )
   texture.format = RedFormat
   texture.minFilter = NearestFilter
   texture.magFilter = NearestFilter
@@ -159,7 +193,9 @@ export function loadDefaultCloudTextures(): DefaultCloudTextures {
       CLOUD_SHAPE_DETAIL_TEXTURE_SIZE
     ),
     turbulence: loadDefaultTexture(DEFAULT_TURBULENCE_URL),
-    stbn: new STBNLoader().load(DEFAULT_STBN_URL)
+    stbn: configurePlaceholderSTBNTexture(
+      new STBNLoader().load(DEFAULT_STBN_URL)
+    )
   }
 }
 
@@ -194,6 +230,7 @@ export class CloudsNode extends TempNode {
 
   readonly shadowNode: CloudShadowNode
   readonly marchNode: CloudsMarchNode
+  readonly resolveNode: CloudsResolveNode
 
   // Texture node wrappers whose values can be swapped without rebuilding:
   private readonly localWeatherTextureNode: TextureNode
@@ -241,8 +278,18 @@ export class CloudsNode extends TempNode {
     // the repeat-wrapped linear sampling the clouds shader requires:
     this.placeholderTextures = [
       configurePlaceholder2DTexture(new Texture()),
-      configurePlaceholder3DTexture(new Data3DTexture()),
-      configurePlaceholder3DTexture(new Data3DTexture()),
+      configurePlaceholder3DTexture(
+        new Data3DTexture(),
+        CLOUD_SHAPE_TEXTURE_SIZE,
+        CLOUD_SHAPE_TEXTURE_SIZE,
+        CLOUD_SHAPE_TEXTURE_SIZE
+      ),
+      configurePlaceholder3DTexture(
+        new Data3DTexture(),
+        CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
+        CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
+        CLOUD_SHAPE_DETAIL_TEXTURE_SIZE
+      ),
       configurePlaceholder2DTexture(new Texture()),
       configurePlaceholderSTBNTexture(new Data3DTexture())
     ]
@@ -288,6 +335,13 @@ export class CloudsNode extends TempNode {
       frame: this.frameUniform
     })
 
+    this.resolveNode = new CloudsResolveNode({
+      colorNode: this.marchNode.getTextureNode('output'),
+      depthVelocityNode: this.marchNode.getTextureNode('depthVelocity'),
+      shadowLengthNode: this.marchNode.getTextureNode('shadowLength'),
+      frame: this.frameUniform
+    })
+
     this.updateBeforeType = NodeUpdateType.FRAME
   }
 
@@ -309,10 +363,35 @@ export class CloudsNode extends TempNode {
     this.marchNode.bsm = value
   }
 
-  // Clears the BSM temporal history so that the resolve restarts from the
-  // current frame, for deterministic captures (see R10 in .port-plan.md):
+  get temporalUpscale(): boolean {
+    return this.resolveNode.temporalUpscale
+  }
+
+  set temporalUpscale(value: boolean) {
+    if (value !== this.resolveNode.temporalUpscale) {
+      this.marchNode.temporalUpscale = value
+      this.resolveNode.temporalUpscale = value
+      this.resolveNode.resetHistory()
+    }
+  }
+
+  get lightShafts(): boolean {
+    return this.resolveNode.lightShafts
+  }
+
+  set lightShafts(value: boolean) {
+    if (value !== this.resolveNode.lightShafts) {
+      this.marchNode.lightShafts = value
+      this.resolveNode.lightShafts = value
+      this.resolveNode.resetHistory()
+    }
+  }
+
+  // Clears temporal history so that both resolves restart from the current
+  // frame, for deterministic captures (see R10 in .port-plan.md):
   resetHistory(): void {
     this.shadowNode.resetHistory()
+    this.resolveNode.resetHistory()
   }
 
   // Convenience accessor equivalent to clouds.coverage in the WebGL version:
@@ -378,10 +457,14 @@ export class CloudsNode extends TempNode {
     return this
   }
 
-  getTextureNode(name: 'output' = 'output'): TextureNode {
-    // The facade output is the march texture at this milestone. It switches to
-    // the resolve node's output at M4:
-    return this.marchNode.getTextureNode(name)
+  getTextureNode(name: 'output' | 'shadowLength' = 'output'): TextureNode {
+    return this.resolveNode.getTextureNode(name)
+  }
+
+  getShadowLengthNode(): Node<'float'> {
+    return this.getTextureNode('shadowLength').load(
+      ivec2(screenCoordinate.xy)
+    ).r
   }
 
   // Ported from the shadow map portion of CloudsEffect.updateSharedUniforms.
@@ -444,11 +527,11 @@ export class CloudsNode extends TempNode {
     // run before the clouds march that consumes them:
     this.shadowNode.update(frame)
 
-    // Full-resolution march at this milestone; ¼ resolution + temporal
-    // upscaling arrives at M4:
     const size = renderer.getDrawingBufferSize(sizeScratch)
     this.marchNode.setSize(size.x, size.y)
     this.marchNode.update(frame)
+    this.resolveNode.setSize(size.x, size.y)
+    this.resolveNode.update(frame)
   }
 
   override setup(builder: NodeBuilder): unknown {
@@ -457,12 +540,13 @@ export class CloudsNode extends TempNode {
     const atmosphereContext = getAtmosphereContext(builder)
     this.atmosphereContext = atmosphereContext
     this.camera = atmosphereContext.camera ?? builder.camera ?? undefined
-    return this.getTextureNode('output').sample(screenUV)
+    return this.getTextureNode('output').load(ivec2(screenCoordinate.xy))
   }
 
   override dispose(): void {
     this.shadowNode.dispose()
     this.marchNode.dispose()
+    this.resolveNode.dispose()
     for (const texture of this.placeholderTextures) {
       texture.dispose()
     }
