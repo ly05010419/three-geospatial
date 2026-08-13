@@ -50,7 +50,12 @@ import {
   cloudOutputTexture,
   type CloudOutputTextureNode
 } from './outputTextures'
-import { varianceClipping, varianceClippingUv } from './varianceClipping'
+import {
+  sampleRedBilinear,
+  varianceClipping,
+  varianceClippingRedUv,
+  varianceClippingUv
+} from './varianceClipping'
 
 const { resetRendererState, restoreRendererState } = RendererUtils
 
@@ -300,13 +305,13 @@ export class CloudsResolveNode extends TempNode {
 
               if (this.lightShafts) {
                 const historyShadowLength = vec4(
-                  this.historyShadowLengthNode.sample(prevUv).r,
+                  sampleRedBilinear(this.historyShadowLengthNode, prevUv),
                   0,
                   0,
                   1
                 ).toConst()
                 outputShadowLength.assign(
-                  varianceClippingUv(
+                  varianceClippingRedUv(
                     this.shadowLengthNode,
                     screenUV,
                     sourceTexelSize,
@@ -350,7 +355,7 @@ export class CloudsResolveNode extends TempNode {
 
             if (this.lightShafts) {
               const historyShadowLength = vec4(
-                this.historyShadowLengthNode.sample(prevUv).r,
+                sampleRedBilinear(this.historyShadowLengthNode, prevUv),
                 0,
                 0,
                 1

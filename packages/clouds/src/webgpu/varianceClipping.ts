@@ -16,7 +16,18 @@
 // The gamma parameter is optional and defaults to 1, equivalently to the
 // gamma-less overloads of the GLSL source.
 
-import { clamp, float, ivec2, ivec3, max, sqrt, vec2, vec4 } from 'three/tsl'
+import {
+  clamp,
+  float,
+  ivec2,
+  ivec3,
+  max,
+  mix,
+  sqrt,
+  textureSize,
+  vec2,
+  vec4
+} from 'three/tsl'
 import type { Texture3DNode, TextureNode } from 'three/webgpu'
 
 import { FnLayout, FnVar, type Node } from '@takram/three-geospatial/webgpu'
@@ -42,6 +53,37 @@ const offsets8: ReadonlyArray<readonly [number, number]> = [
   [0, 1],
   [-1, 0]
 ]
+
+export const sampleRedBilinear = /*#__PURE__*/ FnVar(
+  (textureNode: TextureNode, uv: Node<'vec2'>): Node<'float'> => {
+    const size = vec2(textureSize(textureNode)).toConst()
+    const maxCoord = ivec2(textureSize(textureNode)).sub(ivec2(1)).toConst()
+    const position = uv.mul(size).sub(0.5).toConst()
+    const base = position.floor().toConst()
+    const fraction = position.sub(base).toConst()
+    const coord00 = ivec2(base).clamp(ivec2(0), maxCoord).toConst()
+    const coord10 = ivec2(base.add(vec2(1, 0)))
+      .clamp(ivec2(0), maxCoord)
+      .toConst()
+    const coord01 = ivec2(base.add(vec2(0, 1)))
+      .clamp(ivec2(0), maxCoord)
+      .toConst()
+    const coord11 = ivec2(base.add(vec2(1, 1)))
+      .clamp(ivec2(0), maxCoord)
+      .toConst()
+    const x0 = mix(
+      textureNode.load(coord00).r,
+      textureNode.load(coord10).r,
+      fraction.x
+    ).toConst()
+    const x1 = mix(
+      textureNode.load(coord01).r,
+      textureNode.load(coord11).r,
+      fraction.x
+    ).toConst()
+    return mix(x0, x1, fraction.y)
+  }
+)
 
 // Reference: https://github.com/playdeadgames/temporal
 // Note the alpha channel of the clipped result comes from the current sample:
@@ -128,6 +170,30 @@ export const varianceClippingUv = /*#__PURE__*/ FnVar(
       (inputNode.sample(vec2(x, y).mul(texelSize).add(uv)) as TextureNode)
         .level(float(0))
         .toConst()
+    )
+    return clipByMoments(current, neighbors, history, gamma)
+  }
+)
+
+// The RedFormat + half-float shadow-length targets are sampled manually so the
+// temporal resolve gets WebGL-equivalent bilinear filtering without requiring
+// a filtering sampler for formats WebGPU may treat as unfilterable.
+export const varianceClippingRedUv = /*#__PURE__*/ FnVar(
+  (
+    inputNode: TextureNode,
+    uv: Node<'vec2'>,
+    texelSize: Node<'vec2'>,
+    current: Node<'vec4'>,
+    history: Node<'vec4'>,
+    gamma?: Node<'float'>
+  ): Node<'vec4'> => {
+    const neighbors = offsets4.map(([x, y]) =>
+      vec4(
+        sampleRedBilinear(inputNode, vec2(x, y).mul(texelSize).add(uv)),
+        0,
+        0,
+        1
+      ).toConst()
     )
     return clipByMoments(current, neighbors, history, gamma)
   }
