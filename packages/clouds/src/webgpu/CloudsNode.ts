@@ -1,13 +1,12 @@
-// Facade over the WebGPU clouds render pipeline (M3 subset).
+// Facade over the WebGPU clouds render pipeline.
 // Ported from: three-geospatial/packages/clouds/src/CloudsEffect.ts
 // Texture loading path ported from: three-geospatial/packages/clouds/src/r3f/Clouds.tsx
 //
 // The facade owns the shared uniform bags, the cloud layers, the frame
 // counter, the input textures, the BSM (beer shadow map) producer
-// (CloudShadowNode, including its CPU CascadedShadowMaps) and the march node,
-// driving them in the CloudsEffect.update() order every frame (see D1 in
-// .port-plan.md). The temporal resolve pass is added in M4, at which point
-// the output switches from the march texture to the resolved texture.
+// (CloudShadowNode, including its CPU CascadedShadowMaps), march node, and
+// temporal resolve node, driving them in the CloudsEffect.update() order every
+// frame (see D1 in .port-plan.md).
 
 import {
   Data3DTexture,

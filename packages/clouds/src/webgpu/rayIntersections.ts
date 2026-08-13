@@ -4,7 +4,6 @@
 // getHazeRayNearFar)
 // and the vec4-radii overloads of:
 // three-geospatial/packages/core/src/shaders/raySphereIntersection.glsl
-// getShadowRayNearFar arrives with the shadow length support at M4.
 
 import {
   dot,

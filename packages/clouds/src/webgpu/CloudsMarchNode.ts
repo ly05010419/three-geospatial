@@ -2,13 +2,11 @@
 // three-geospatial/packages/clouds/src/CloudsMaterial.ts and
 // three-geospatial/packages/clouds/src/shaders/clouds.vert + clouds.frag
 //
-// M2/M3 scope: the march renders at full resolution into a single rgba16f
-// color target with unjittered camera settings (temporalJitter = 0). The BSM
-// (beer shadow map) produced by CloudShadowNode is consumed through the
-// shadowBuffer/shadowUniforms inputs; the bsm option restores the M2-only
-// mode (zero shadow optical depth) for regression bisecting. M4 adds
-// marchShadowLength, the Bayer projection jitter, the ¼-resolution target,
-// and the depthVelocity and shadowLength MRT outputs.
+// The march renders into a low-resolution MRT when temporal upscaling is
+// enabled, writing color, depth/velocity, and shadow length for the resolve
+// pass. The BSM (beer shadow map) produced by CloudShadowNode is consumed
+// through the shadowBuffer/shadowUniforms inputs; the bsm option restores the
+// no-BSM image with zero shadow optical depth for regression bisecting.
 
 import {
   HalfFloatType,
