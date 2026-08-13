@@ -5,6 +5,7 @@
 
 import {
   HalfFloatType,
+  LinearFilter,
   NearestFilter,
   RedFormat,
   RenderTarget,
@@ -169,6 +170,8 @@ export class CloudsResolveNode extends TempNode {
       texture.magFilter = NearestFilter
       texture.generateMipmaps = false
     }
+    color.minFilter = LinearFilter
+    color.magFilter = LinearFilter
     color.name = 'output'
     shadowLength.name = 'shadowLength'
     shadowLength.format = RedFormat
