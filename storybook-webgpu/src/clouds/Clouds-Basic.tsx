@@ -290,7 +290,7 @@ Story.args = {
   coverage: 0.3,
   qualityPreset: 'high',
   bsm: true,
-  temporalUpscale: false,
+  temporalUpscale: true,
   lightShafts: true,
   haze: true,
   shapeDetail: true,
