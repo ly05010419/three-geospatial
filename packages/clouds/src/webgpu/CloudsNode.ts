@@ -81,6 +81,7 @@ import {
   type CloudParameterUniforms
 } from './uniforms'
 import { sampleRedBilinear } from './varianceClipping'
+import type { CloudQualityOptions, CloudsOptions, DefaultTextureLoadOptions } from './options'
 
 const sizeScratch = /*#__PURE__*/ new Vector2()
 const vectorScratch1 = /*#__PURE__*/ new Vector3()
@@ -164,10 +165,17 @@ export class CloudsNode extends TempNode {
   // Captured in setup() for the CPU shadow-map update in updateBefore():
   private atmosphereContext?: AtmosphereContext
   private camera?: Camera
+  private _enabled = true
+  readonly enabledUniform = uniform('bool').setName('cloudsEnabled')
+  readonly options: CloudsOptions
+  readonly shadowDispatchMode: 'automatic' | 'explicit'
 
-  constructor(depthNode?: TextureNode | null) {
+  constructor(depthNode?: TextureNode | null, options: CloudsOptions = {}) {
     super('vec4')
     this.depthNode = depthNode
+    this.options = options
+    this.shadowDispatchMode = options.shadows?.dispatchMode ?? 'automatic'
+    const ellipsoid = options.ellipsoid ?? options.atmosphereContext?.ellipsoid
 
     this.parameterUniforms = createCloudParameterUniforms({
       localWeatherRepeat: this.localWeatherRepeat,
@@ -226,7 +234,10 @@ export class CloudsNode extends TempNode {
       shapeDetailTexture: this.shapeDetailTextureNode,
       turbulenceTexture: this.turbulenceTextureNode,
       stbnTexture: this.stbnTextureNode,
-      frame: this.frameUniform
+      frame: this.frameUniform,
+      planetRadius: options.curvature?.planetRadius,
+      referenceRadius: options.curvature?.referenceRadius,
+      preserveLocalScale: options.curvature?.preserveLocalScale
     })
     // The default of the frozen comparison parameters (§3.3 in
     // .port-plan.md). The WebGL CascadedShadowMaps defaults to the camera far
@@ -245,7 +256,10 @@ export class CloudsNode extends TempNode {
       stbnTexture: this.stbnTextureNode,
       shadowBuffer: this.shadowNode.getTextureNode('output'),
       shadowUniforms: this.shadowNode.shadowUniforms,
-      frame: this.frameUniform
+      frame: this.frameUniform,
+      curvature: options.curvature,
+      depth: options.depth,
+      ellipsoid
     })
 
     this.resolveNode = new CloudsResolveNode({
@@ -256,6 +270,15 @@ export class CloudsNode extends TempNode {
     })
 
     this.updateBeforeType = NodeUpdateType.FRAME
+    const quality = options.quality ?? options
+    if (quality.preset != null) this.qualityPreset = quality.preset
+    if (quality.bsm != null) this.bsm = quality.bsm
+    if (quality.lightShafts != null) this.lightShafts = quality.lightShafts
+    if (quality.haze != null) this.haze = quality.haze
+    if (quality.temporalUpscale != null) this.temporalUpscale = quality.temporalUpscale
+    if (options.shadows?.enabled === false) this.bsm = false
+    this._enabled = options.enabled ?? true
+    this.enabledUniform.value = this._enabled
   }
 
   override customCacheKey(): number {
@@ -266,6 +289,28 @@ export class CloudsNode extends TempNode {
       Math.round(this.resolutionScale * 1000)
     )
   }
+
+  get enabled(): boolean { return this._enabled }
+  set enabled(value: boolean) {
+    this._enabled = value
+    this.enabledUniform.value = value
+    this.resetHistory()
+  }
+  setEnabled(value: boolean): this { this.enabled = value; return this }
+  setCoverage(value: number): this { this.coverage = value; return this }
+
+  setQuality(options: CloudQualityOptions): this {
+    if (options.preset != null) this.qualityPreset = options.preset
+    if (options.bsm != null) this.bsm = options.bsm
+    if (options.lightShafts != null) this.lightShafts = options.lightShafts
+    if (options.haze != null) this.haze = options.haze
+    if (options.temporalUpscale != null) this.temporalUpscale = options.temporalUpscale
+    this.resetHistory()
+    return this
+  }
+
+  get maxRayDistance(): number { return this.marchNode.maxRayDistance.value }
+  set maxRayDistance(value: number) { this.marchNode.maxRayDistance.value = value }
 
   // The cascaded shadow maps (CPU), owned by the shadow node and updated by
   // this facade every frame:
@@ -513,8 +558,8 @@ export class CloudsNode extends TempNode {
 
   // Loads the default hosted assets into every texture slot. The loaded
   // textures are owned by this node and disposed together with it.
-  loadDefaultTextures(): this {
-    this.defaultTextures ??= loadDefaultCloudTextures()
+  loadDefaultTextures(options: DefaultTextureLoadOptions = {}): this {
+    this.defaultTextures ??= loadDefaultCloudTextures(options)
     const { localWeather, shape, shapeDetail, turbulence, stbn } =
       this.defaultTextures
     this.localWeatherTexture = localWeather
@@ -637,7 +682,7 @@ export class CloudsNode extends TempNode {
   // The camera position, the sun direction and the world matrices are
   // recomputed from the atmosphere context values on the CPU, independently
   // of the context uniform update timing (see D5 in .port-plan.md):
-  private updateShadowMaps(): void {
+  private updateShadowMapCamera(): void {
     const atmosphereContext = this.atmosphereContext
     const camera = this.camera
     if (atmosphereContext == null || camera == null) {
@@ -669,6 +714,12 @@ export class CloudsNode extends TempNode {
     )
   }
 
+  /** Explicitly dispatch the cloud shadow pipeline for integrations that own frame ordering. */
+  updateShadowMaps(frame: NodeFrame): void {
+    this.updateShadowMapCamera()
+    this.shadowNode.update(frame)
+  }
+
   override updateBefore(frame: NodeFrame): void {
     const { renderer } = frame
     if (renderer == null) {
@@ -697,7 +748,7 @@ export class CloudsNode extends TempNode {
 
     // CPU-side shared uniform updates:
     updateCloudLayerUniforms(this.layerUniforms, this.cloudLayers)
-    this.updateShadowMaps()
+    this.updateShadowMapCamera()
 
     // Keep direct shadowMaps mutations synchronized as well. Quality presets
     // update both sides immediately so material rebuilds see the new count:
@@ -706,7 +757,9 @@ export class CloudsNode extends TempNode {
     // The facade drives the sub-passes explicitly to guarantee their order;
     // sub-nodes are not independently FRAME-updated. The BSM march + resolve
     // run before the clouds march that consumes them:
-    this.shadowNode.update(frame)
+    if (this.options.shadows?.enabled !== false && this.shadowDispatchMode === 'automatic') {
+      this.shadowNode.update(frame)
+    }
 
     const size = renderer.getDrawingBufferSize(sizeScratch)
     const width = Math.max(1, Math.ceil(size.x * this.resolutionScale))
@@ -723,7 +776,10 @@ export class CloudsNode extends TempNode {
     const atmosphereContext = getAtmosphereContext(builder)
     this.atmosphereContext = atmosphereContext
     this.camera = atmosphereContext.camera ?? builder.camera ?? undefined
-    return this.getTextureNode('output').sample(screenUV)
+    return this.enabledUniform.select(
+      this.getTextureNode('output').sample(screenUV),
+      vec4(0)
+    )
   }
 
   override dispose(): void {

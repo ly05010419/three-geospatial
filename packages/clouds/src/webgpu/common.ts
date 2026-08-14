@@ -183,6 +183,8 @@ export interface CloudSamplingOptions {
   shapeDetail?: boolean
   // Equivalent to the TURBULENCE define in the WebGL version:
   turbulence?: boolean
+  /** Scales world positions used by the 3D shape textures. */
+  positionScale?: number
 }
 
 type SampleWeatherArgs = [
@@ -300,7 +302,7 @@ export const sampleMedia = (
   textures: CloudSamplingTextures,
   options: CloudSamplingOptions = {}
 ): ShaderNodeFn<ProxiedTuple<SampleMediaArgs>> => {
-  const { shapeDetail = true, turbulence = true } = options
+  const { shapeDetail = true, turbulence = true, positionScale = 1 } = options
   const {
     scatteringCoefficient,
     absorptionCoefficient,
@@ -340,7 +342,8 @@ export const sampleMedia = (
       const density = weather.get('density').toVar()
 
       // TODO: Define in physical length.
-      const surfaceNormal = normalize(position).toConst()
+      const samplingPosition = position.mul(positionScale).toConst()
+      const surfaceNormal = normalize(samplingPosition).toConst()
       const localWeatherSpeed = length(localWeatherOffset).toConst()
       const evolution = surfaceNormal
         .negate()
@@ -357,7 +360,7 @@ export const sampleMedia = (
           .toConst()
       }
 
-      const shapePosition = position
+      const shapePosition = samplingPosition
         .add(evolution)
         .add(turbulenceNode)
         .mul(shapeRepeat)
@@ -376,7 +379,7 @@ export const sampleMedia = (
         If(
           mipLevel.mul(0.5).add(jitter.sub(0.5).mul(0.5)).lessThan(0.5),
           () => {
-            const detailPosition = position
+            const detailPosition = samplingPosition
               .add(turbulenceNode)
               .mul(shapeDetailRepeat)
               .add(shapeDetailOffset)

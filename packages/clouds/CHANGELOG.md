@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.2] - 2026-08-15
+
+### Added
+
+- Added public WebGPU integration options for depth mode, custom ellipsoids,
+  curvature metadata, quality controls, shadow dispatch, and asset base URLs.
+- Added runtime controls (`setQuality`, `setEnabled`, `setCoverage`,
+  `maxRayDistance`, and explicit `updateShadowMaps`).
+- `setEnabled()` now updates a GPU bool uniform and does not rebuild the cloud
+  pipeline.
+
+### Fixed
+
+- Default cloud textures can now be loaded from a package-relative asset base
+  URL instead of relying on machine-local paths.
+
+## [0.1.1] - 2026-08-15
+
+### Fixed
+
+- Fixed a WebGPU/WGSL symbol collision between cloud and atmosphere density
+  functions when both pipelines are composed.
+
 ## [0.7.6] - 2026-05-06
 
 This release contains internal dependency updates only.

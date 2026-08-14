@@ -107,6 +107,9 @@ export interface CloudShadowNodeParameters {
   // Frame counter that phases the spatiotemporal blue noise. Provide to share
   // the owner's counter; a new uniform is created otherwise:
   frame?: UniformNode<number>
+  planetRadius?: number
+  referenceRadius?: number
+  preserveLocalScale?: boolean
 }
 
 export class CloudShadowNode extends TempNode {
@@ -238,6 +241,9 @@ export class CloudShadowNode extends TempNode {
 
   // Captured in setup() for use in update():
   private atmosphereContext?: AtmosphereContext
+  planetRadius?: number
+  referenceRadius?: number
+  preserveLocalScale?: boolean
 
   constructor({
     parameterUniforms,
@@ -247,7 +253,10 @@ export class CloudShadowNode extends TempNode {
     shapeDetailTexture,
     turbulenceTexture,
     stbnTexture,
-    frame
+    frame,
+    planetRadius,
+    referenceRadius,
+    preserveLocalScale
   }: CloudShadowNodeParameters) {
     super(null)
     this.parameterUniforms = parameterUniforms
@@ -258,6 +267,9 @@ export class CloudShadowNode extends TempNode {
     this.turbulenceTexture = turbulenceTexture
     this.stbnTexture = stbnTexture
     this.frame = frame ?? uniform(0, 'int').setName('frame')
+    this.planetRadius = planetRadius
+    this.referenceRadius = referenceRadius
+    this.preserveLocalScale = preserveLocalScale
 
     // Equivalent to the outputBuffer of the WebGL ShadowPass; the value swaps
     // to the just-written resolve texture every frame:
@@ -447,7 +459,7 @@ export class CloudShadowNode extends TempNode {
   // version:
   private createMarchComputeNode(context: AtmosphereContext): ComputeNode {
     const { matrixWorldToECEF, matrixECEFToWorld, sunDirectionECEF } = context
-    const bottomRadius = float(context.parameters.bottomRadius)
+    const bottomRadius = float(this.planetRadius ?? context.parameters.bottomRadius)
     const altitudeCorrection: Node<'vec3'> = context.correctAltitude
       ? context.altitudeCorrectionECEF
       : vec3(0)
@@ -476,7 +488,12 @@ export class CloudShadowNode extends TempNode {
       shadow: true,
       channels: this.localWeatherChannels,
       shapeDetail: this.shapeDetail,
-      turbulence: this.turbulence
+      turbulence: this.turbulence,
+      positionScale:
+        this.preserveLocalScale !== false &&
+        this.referenceRadius != null && this.planetRadius != null
+          ? this.referenceRadius / this.planetRadius
+          : 1
     }
     const sampleWeatherFn = sampleWeather(
       this.parameterUniforms,

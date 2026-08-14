@@ -188,17 +188,22 @@ function loadDefaultSTBNTexture(url: string): PendingTexture<Data3DTexture> {
   return { texture, ready }
 }
 
-export function loadDefaultCloudTextures(): DefaultCloudTextures {
-  const localWeather = loadDefaultTexture(DEFAULT_LOCAL_WEATHER_URL)
+export function loadDefaultCloudTextures(options: { assetBaseUrl?: string | URL } = {}): DefaultCloudTextures {
+  const base = options.assetBaseUrl != null
+    ? new URL(String(options.assetBaseUrl), typeof location !== 'undefined' ? location.href : 'http://localhost/')
+    : undefined
+  const asset = (name: string, fallback: string): string =>
+    base != null ? new URL(name, base).href : fallback
+  const localWeather = loadDefaultTexture(asset('local_weather.png', DEFAULT_LOCAL_WEATHER_URL))
   const shape = loadDefault3DTexture(
-    DEFAULT_SHAPE_URL,
+    asset('shape.bin', DEFAULT_SHAPE_URL),
     CLOUD_SHAPE_TEXTURE_SIZE
   )
   const shapeDetail = loadDefault3DTexture(
-    DEFAULT_SHAPE_DETAIL_URL,
+    asset('shape_detail.bin', DEFAULT_SHAPE_DETAIL_URL),
     CLOUD_SHAPE_DETAIL_TEXTURE_SIZE
   )
-  const turbulence = loadDefaultTexture(DEFAULT_TURBULENCE_URL)
+  const turbulence = loadDefaultTexture(asset('turbulence.png', DEFAULT_TURBULENCE_URL))
   const stbn = loadDefaultSTBNTexture(DEFAULT_STBN_URL)
   const ready = Promise.all([
     localWeather.ready,

@@ -108,6 +108,7 @@ import type {
   CloudParameterUniforms,
   CloudShadowUniforms
 } from './uniforms'
+import type { CloudCurvatureOptions, CloudDepthMode, CloudDepthOptions } from './options'
 
 const { resetRendererState, restoreRendererState } = RendererUtils
 
@@ -163,6 +164,9 @@ export interface CloudsMarchNodeParameters {
   // Frame counter that phases the spatiotemporal blue noise. Provide to share
   // the owner's counter; a new uniform is created otherwise:
   frame?: UniformNode<number>
+  curvature?: CloudCurvatureOptions
+  depth?: CloudDepthOptions
+  ellipsoid?: import('@takram/three-geospatial').Ellipsoid
 }
 
 export class CloudsMarchNode extends TempNode {
@@ -212,6 +216,10 @@ export class CloudsMarchNode extends TempNode {
   scatterAnisotropy2 = -0.2
   scatterAnisotropyMix = 0.5
   debugShow: CloudsMarchDebugShow = 'none'
+  curvature?: CloudCurvatureOptions
+  depthMode: CloudDepthMode = 'conventional'
+  depthEpsilon = 1e-7
+  ellipsoid?: import('@takram/three-geospatial').Ellipsoid
 
   // Camera settings, updated in update() via copyCameraSettings():
   readonly viewMatrix: UniformNode<Matrix4> = uniform(new Matrix4()).setName(
@@ -367,7 +375,10 @@ export class CloudsMarchNode extends TempNode {
     stbnTexture,
     shadowBuffer,
     shadowUniforms,
-    frame
+    frame,
+    curvature,
+    depth,
+    ellipsoid
   }: CloudsMarchNodeParameters) {
     super(null)
     this.depthNode = depthNode
@@ -381,6 +392,10 @@ export class CloudsMarchNode extends TempNode {
     this.shadowBuffer = shadowBuffer
     this.shadowUniforms = shadowUniforms
     this.frame = frame ?? uniform(0, 'int').setName('frame')
+    this.curvature = curvature
+    this.depthMode = depth?.mode ?? 'conventional'
+    this.depthEpsilon = depth?.epsilon ?? 1e-7
+    this.ellipsoid = ellipsoid
 
     this.renderTarget = new RenderTarget(1, 1, {
       count: 3,
@@ -529,7 +544,9 @@ export class CloudsMarchNode extends TempNode {
       .applyMatrix4(atmosphereContext.matrixWorldToECEF.value)
     try {
       this.cameraHeight.value =
-        geodeticScratch.setFromECEF(cameraPositionECEF).height
+        geodeticScratch.setFromECEF(cameraPositionECEF, {
+          ellipsoid: this.ellipsoid
+        }).height
     } catch {
       // Abort when unable to project position to the ellipsoid surface.
     }
@@ -572,7 +589,11 @@ export class CloudsMarchNode extends TempNode {
     const { worldToUnit } = atmosphereContext.parametersNode
     const { matrixWorldToECEF, matrixECEFToWorld, sunDirectionECEF } =
       atmosphereContext
-    const bottomRadius = float(atmosphereContext.parameters.bottomRadius)
+    const bottomRadius = float(
+      this.curvature?.enabled === false
+        ? atmosphereContext.parameters.bottomRadius
+        : this.curvature?.planetRadius ?? atmosphereContext.parameters.bottomRadius
+    )
     const altitudeCorrection: Node<'vec3'> = atmosphereContext.correctAltitude
       ? atmosphereContext.altitudeCorrectionECEF
       : vec3(0)
@@ -628,7 +649,12 @@ export class CloudsMarchNode extends TempNode {
       shadow: false,
       channels: this.localWeatherChannels,
       shapeDetail: this.shapeDetail,
-      turbulence: this.turbulence
+      turbulence: this.turbulence,
+      positionScale:
+        this.curvature?.preserveLocalScale !== false &&
+        this.curvature?.referenceRadius != null && this.curvature.planetRadius != null
+          ? this.curvature.referenceRadius / this.curvature.planetRadius
+          : 1
     }
     const sampleWeatherFn = sampleWeather(
       this.parameterUniforms,
@@ -802,7 +828,10 @@ export class CloudsMarchNode extends TempNode {
           .add(this.temporalJitter)
         const depth = depthNode.sample(depthUv).r.toConst()
         const rayDistanceToScene = float(0).toVar()
-        If(depth.lessThan(1 - 1e-7), () => {
+        const depthVisible = this.depthMode === 'reversed-z'
+          ? depth.greaterThan(this.depthEpsilon)
+          : depth.lessThan(1 - this.depthEpsilon)
+        If(depthVisible, () => {
           const viewZ = depthToViewZ(
             depth,
             camera,

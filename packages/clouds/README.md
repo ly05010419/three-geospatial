@@ -21,10 +21,10 @@ The demo contains three examples:
 
 ## Installation
 
-The published `0.1.0` release targets Three.js `0.183.x`:
+The published `0.1.2` release targets Three.js `0.184.x`:
 
 ```sh
-npm install @yong_three/three-clouds@0.1.0 three@0.183 postprocessing
+npm install @yong_three/three-clouds@0.1.2 three@0.184 postprocessing
 npm install --save-dev @types/three@0.182
 ```
 
@@ -136,12 +136,63 @@ cloudsNode.shapeVelocity.set(0.0001, 0.0001, 0.0001)
 cloudsNode.shapeDetailVelocity.set(0.0002, 0.0002, 0.0002)
 ```
 
+## Integration options
+
+The WebGPU factory accepts a second argument so applications do not need to
+patch the package source or Vite configuration:
+
+```ts
+import { clouds } from '@yong_three/three-clouds/webgpu'
+
+const cloudLayer = clouds(depthNode, {
+  ellipsoid: gameEllipsoid,
+  curvature: {
+    referenceRadius: 6_360_000,
+    planetRadius: 63_710,
+    preserveLocalScale: true
+  },
+  depth: { mode: 'reversed-z', epsilon: 1e-7 },
+  quality: {
+    preset: 'high',
+    bsm: true,
+    lightShafts: true,
+    haze: true,
+    temporalUpscale: true
+  },
+  shadows: { dispatchMode: 'automatic' }
+}).loadDefaultTextures({ assetBaseUrl: new URL('./assets/', import.meta.url) })
+```
+
+`depth.mode` selects the scene-depth comparison (`conventional` or
+`reversed-z`). `ellipsoid` is used for camera geodetic height instead of
+implicitly using WGS84. `curvature` is carried as node configuration for
+planet-scale integrations and keeps the reference and game radii explicit.
+The cloud/atmosphere WGSL helper is emitted as `getCloudLayerDensity`, so the
+two pipelines can be composed without a Vite string replacement.
+
+Runtime controls are available on the returned `CloudsNode`:
+
+```ts
+cloudLayer.setEnabled(false)
+cloudLayer.setCoverage(0.35)
+cloudLayer.setQuality({ preset: 'medium', bsm: false })
+cloudLayer.maxRayDistance = 100_000
+cloudLayer.resetHistory()
+cloudLayer.updateShadowMaps(frame) // only when dispatchMode is 'explicit'
+cloudLayer.dispose()
+```
+
+`setEnabled()` updates the `cloudsEnabled` GPU uniform. It is safe to call
+after the renderer has built the pipeline; no material or shader rebuild is
+triggered.
+
+Set `shadows.enabled: false` to skip the BSM dispatch entirely. For an
+application-owned frame graph, use `dispatchMode: 'explicit'` and call
+`updateShadowMaps(frame)` exactly once per frame.
+
 ## Current limitations
 
-- The Storybook scene integrates `CloudsNode` manually; a convenience wrapper
-  is not exported from the WebGPU entry point.
-- `CloudsNode` does not expose every convenience property of the internal
-  node graph; advanced parameters are available through `parameterUniforms`,
+- Advanced parameters remain available through `parameterUniforms`,
   `marchNode`, `shadowNode`, and `resolveNode`.
 - 3D Tiles and world-origin-rebasing scenes are not ported in this branch.
 - Procedural texture nodes are supported, but the validated parity path uses
