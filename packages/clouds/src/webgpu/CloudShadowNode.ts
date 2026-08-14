@@ -122,9 +122,8 @@ export class CloudShadowNode extends TempNode {
   stbnTexture: Data3DTexture | Texture3DNode
 
   // Static options, equivalent to the defines of the WebGL ShadowMaterial.
-  // Changing any of these requires rebuilding the node graph (e.g. by setting
-  // needsUpdate on the post-processing that owns this node). The march and
-  // resolve kernels themselves are recreated automatically:
+  // The march and resolve kernels are recreated automatically when they
+  // change:
   localWeatherChannels: LocalWeatherChannels = 'rgba'
   shapeDetail: boolean = defaults.shapeDetail
   turbulence: boolean = defaults.turbulence
@@ -225,6 +224,7 @@ export class CloudShadowNode extends TempNode {
   private resolveComputeNodeA?: ComputeNode
   private resolveComputeNodeB?: ComputeNode
   private clearComputeNode?: ComputeNode
+  private computeCacheKey?: number
 
   // Ping-pong state: the kernel writing into A reads the history from B and
   // vice versa. The equivalent of the render target swap in ShadowPass:
@@ -687,6 +687,12 @@ export class CloudShadowNode extends TempNode {
     if (width <= 0 || height <= 0 || depth <= 0) {
       return
     }
+    const computeCacheKey = this.customCacheKey()
+    if (computeCacheKey !== this.computeCacheKey) {
+      this.disposeComputeNodes()
+      this.computeCacheKey = computeCacheKey
+      this.needsClearHistory = true
+    }
     if (
       width !== this.width ||
       height !== this.height ||
@@ -746,6 +752,7 @@ export class CloudShadowNode extends TempNode {
     // Recreate them when the node graph rebuilds so that changed static
     // options take effect (see D7 in .port-plan.md):
     this.disposeComputeNodes()
+    this.computeCacheKey = undefined
     return super.setup(builder)
   }
 

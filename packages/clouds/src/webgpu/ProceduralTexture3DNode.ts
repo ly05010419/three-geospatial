@@ -17,6 +17,7 @@ import {
 import {
   Storage3DTexture,
   TempNode,
+  type ComputeNode,
   type NodeBuilder,
   type TextureNode
 } from 'three/webgpu'
@@ -31,6 +32,8 @@ export abstract class ProceduralTexture3DNode extends TempNode {
   readonly texture = this.createStorage3DTexture()
 
   private readonly textureNode: TextureNode
+  private computeNode?: ComputeNode
+  private builder?: NodeBuilder
 
   constructor(size = new Vector3(1)) {
     super(null)
@@ -60,7 +63,17 @@ export abstract class ProceduralTexture3DNode extends TempNode {
   }
 
   setSize(width: number, height: number, depth: number): this {
-    this.texture.setSize(width, height, depth)
+    if (
+      width !== this.texture.width ||
+      height !== this.texture.height ||
+      depth !== this.texture.depth
+    ) {
+      this.texture.setSize(width, height, depth)
+      this.texture.needsUpdate = true
+      if (this.builder != null) {
+        this.generateTexture(this.builder)
+      }
+    }
     return this
   }
 
@@ -69,10 +82,11 @@ export abstract class ProceduralTexture3DNode extends TempNode {
     builder: NodeBuilder
   ): Node
 
-  override setup(builder: NodeBuilder): unknown {
+  private generateTexture(builder: NodeBuilder): void {
     const { width, height, depth } = this.texture
 
-    const computeNode = Fn(() => {
+    this.computeNode?.dispose()
+    this.computeNode = Fn(() => {
       const id = instanceIndex
       const x = id.mod(width)
       const y = id.div(width).mod(height)
@@ -91,12 +105,20 @@ export abstract class ProceduralTexture3DNode extends TempNode {
       )
     })().compute(width * height * depth, [4, 4, 4])
 
-    void builder.renderer.compute(computeNode)
+    void builder.renderer.compute(this.computeNode)
+  }
+
+  override setup(builder: NodeBuilder): unknown {
+    this.builder = builder
+    this.generateTexture(builder)
 
     return super.setup(builder)
   }
 
   override dispose(): void {
+    this.computeNode?.dispose()
+    this.computeNode = undefined
+    this.builder = undefined
     this.texture.dispose()
     super.dispose()
   }

@@ -20,9 +20,23 @@ the R3F `<Clouds>` component.
 
 ```ts
 import { clouds } from '@takram/three-clouds/webgpu'
+import { WebGPURenderer } from 'three/webgpu'
 
-const cloudsNode = clouds(depthNode).loadDefaultTextures()
+const renderer = new WebGPURenderer({
+  requiredLimits: {
+    maxSampledTexturesPerShaderStage: 32
+  }
+})
+await renderer.init()
+
+const cloudsNode = await clouds(depthNode).loadDefaultTexturesAsync()
 ```
+
+The renderer must request at least 32 sampled textures per shader stage. Check
+the adapter limit before creating the renderer when targeting devices that may
+not support this limit. `loadDefaultTexturesAsync()` rejects when a hosted
+asset cannot be loaded; `loadDefaultTextures()` remains available when loading
+does not need to block initialization.
 
 The WebGPU implementation currently includes:
 
@@ -33,7 +47,7 @@ The WebGPU implementation currently includes:
 - Light shafts through resolved shadow length
 - Default cloud texture loading and quality presets
 - Runtime toggles for BSM, temporal upscaling, light shafts, haze, shape
-  detail, and turbulence
+  detail, and turbulence; their internal GPU programs rebuild automatically
 - Debug views for march UVs, sample count, front depth, shadow length, and
   resolve velocity
 - A vanilla Three.js WebGPU path without R3F scene helpers

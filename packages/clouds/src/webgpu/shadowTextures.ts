@@ -35,7 +35,7 @@ export class ShadowOutputTexture3DNode extends OutputTexture3DNode {
     reinterpretType<typeof this & { offsetNode: unknown }>(this)
     reinterpretType<{ offsetNode: unknown }>(clone)
     clone.offsetNode = this.offsetNode
-    return clone as this
+    return clone
   }
 }
 

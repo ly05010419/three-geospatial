@@ -147,8 +147,11 @@ export const varianceClipping = /*#__PURE__*/ FnVar(
     history: Node<'vec4'>,
     gamma?: Node<'float'>
   ): Node<'vec4'> => {
+    const maxCoord = ivec2(textureSize(inputNode)).sub(ivec2(1)).toConst()
     const neighbors = offsets4.map(([x, y]) =>
-      inputNode.load(coord.add(ivec2(x, y))).toConst()
+      inputNode
+        .load(coord.add(ivec2(x, y)).clamp(ivec2(0), maxCoord).toConst())
+        .toConst()
     )
     return clipByMoments(current, neighbors, history, gamma)
   }
@@ -210,8 +213,16 @@ export const varianceClippingSlice = /*#__PURE__*/ FnVar(
     history: Node<'vec4'>,
     gamma?: Node<'float'>
   ): Node<'vec4'> => {
+    const maxCoord = ivec3(textureSize(inputNode)).sub(ivec3(1)).toConst()
     const neighbors = offsets8.map(([x, y]) =>
-      inputNode.load(coord.add(ivec3(x, y, 0))).toConst()
+      inputNode
+        .load(
+          coord
+            .add(ivec3(x, y, 0))
+            .clamp(ivec3(0), maxCoord)
+            .toConst()
+        )
+        .toConst()
     )
     return clipByMoments(current, neighbors, history, gamma)
   }

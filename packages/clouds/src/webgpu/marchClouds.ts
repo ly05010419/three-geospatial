@@ -34,7 +34,7 @@ import {
   vec3,
   vec4
 } from 'three/tsl'
-import { TextureNode, type Texture3DNode, type UniformNode } from 'three/webgpu'
+import type { Texture3DNode, TextureNode, UniformNode } from 'three/webgpu'
 
 import {
   getSplitIlluminance,
@@ -64,14 +64,12 @@ export type SampleShadowOpticalDepthFn = ReturnType<
 // Coerce texture inputs into texture nodes. Plain textures are wrapped;
 // texture nodes (e.g. of the procedural texture nodes) pass through:
 export const toTextureNode = (value: Texture | TextureNode): TextureNode =>
-  (value as TextureNode).isTextureNode === true
-    ? (value as TextureNode)
-    : texture(value as Texture)
+  (value as TextureNode).isTextureNode ? (value as TextureNode) : texture(value)
 
 export const toTexture3DNode = (
   value: Data3DTexture | Texture3DNode
 ): Texture3DNode =>
-  (value as Texture3DNode).isTexture3DNode === true
+  (value as Texture3DNode).isTexture3DNode
     ? (value as Texture3DNode)
     : texture3D(value as Data3DTexture)
 

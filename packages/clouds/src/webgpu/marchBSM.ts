@@ -4,6 +4,7 @@
 // three-geospatial/packages/clouds/src/shaders/shadowResolve.frag
 // See CloudShadowNode for the compute passes that drive these functions.
 
+import type { Vector3 } from 'three'
 import type { ProxiedTuple, ShaderNodeFn } from 'three/src/nodes/TSL.js'
 import {
   add,
@@ -18,11 +19,11 @@ import {
   Loop,
   max,
   min,
+  textureSize,
   vec2,
   vec4
 } from 'three/tsl'
 import type { Texture3DNode, UniformNode } from 'three/webgpu'
-import type { Vector3 } from 'three'
 
 import {
   STBN_TEXTURE_DEPTH,
@@ -273,10 +274,15 @@ const neighborOffsets: ReadonlyArray<readonly [number, number]> = [
 export const getClosestFragment = /*#__PURE__*/ FnVar(
   (depthVelocityNode: Texture3DNode, coord: Node<'ivec3'>): Node<'vec4'> => {
     const result = vec4(1e7, 0, 0, 0).toVar()
+    const maxCoord = ivec3(textureSize(depthVelocityNode))
+      .sub(ivec3(1))
+      .toConst()
     for (const [x, y] of neighborOffsets) {
-      const neighbor = depthVelocityNode
-        .load(coord.add(ivec3(x, y, 0)))
+      const neighborCoord = coord
+        .add(ivec3(x, y, 0))
+        .clamp(ivec3(0), maxCoord)
         .toConst()
+      const neighbor = depthVelocityNode.load(neighborCoord).toConst()
       If(neighbor.r.lessThan(result.r), () => {
         result.assign(neighbor)
       })

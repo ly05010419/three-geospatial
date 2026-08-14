@@ -122,6 +122,7 @@ export class CloudsResolveNode extends TempNode {
   private readonly mesh = new QuadMesh(this.material)
   private rendererState?: RendererUtils.RendererState
   private needsClearHistory = true
+  private materialCacheKey?: number
 
   private readonly textureNodes: {
     output: CloudOutputTextureNode
@@ -232,6 +233,7 @@ export class CloudsResolveNode extends TempNode {
       return
     }
 
+    this.updateMaterial()
     this.rendererState = resetRendererState(renderer, this.rendererState)
     if (this.needsClearHistory) {
       this.clearHistory(renderer)
@@ -247,10 +249,15 @@ export class CloudsResolveNode extends TempNode {
   private setupResolveNode(): MRTNode {
     const getClosestFragment = (coord: Node<'ivec2'>): Node<'vec4'> => {
       const result = vec4(1e7, 0, 0, 0).toVar()
+      const maxCoord = ivec2(textureSize(this.depthVelocityNode))
+        .sub(ivec2(1))
+        .toConst()
       for (const [x, y] of neighborOffsets) {
-        const neighbor = this.depthVelocityNode
-          .load(coord.add(ivec2(x, y)))
+        const neighborCoord = coord
+          .add(ivec2(x, y))
+          .clamp(ivec2(0), maxCoord)
           .toConst()
+        const neighbor = this.depthVelocityNode.load(neighborCoord).toConst()
         If(neighbor.r.lessThan(result.r), () => {
           result.assign(neighbor)
         })
@@ -409,9 +416,18 @@ export class CloudsResolveNode extends TempNode {
     })
   }
 
+  private updateMaterial(force = false): void {
+    const cacheKey = this.customCacheKey()
+    if (force || cacheKey !== this.materialCacheKey) {
+      this.material.mrtNode = this.setupResolveNode()
+      this.material.needsUpdate = true
+      this.materialCacheKey = cacheKey
+      this.needsClearHistory = true
+    }
+  }
+
   override setup(builder: NodeBuilder): unknown {
-    this.material.mrtNode = this.setupResolveNode()
-    this.material.needsUpdate = true
+    this.updateMaterial(true)
     return super.setup(builder)
   }
 

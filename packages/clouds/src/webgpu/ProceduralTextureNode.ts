@@ -17,6 +17,7 @@ import {
 import {
   StorageTexture,
   TempNode,
+  type ComputeNode,
   type NodeBuilder,
   type TextureNode
 } from 'three/webgpu'
@@ -31,6 +32,8 @@ export abstract class ProceduralTextureNode extends TempNode {
   readonly texture = this.createStorageTexture()
 
   private readonly textureNode: TextureNode
+  private computeNode?: ComputeNode
+  private builder?: NodeBuilder
 
   constructor(size = new Vector2(1)) {
     super(null)
@@ -59,7 +62,13 @@ export abstract class ProceduralTextureNode extends TempNode {
   }
 
   setSize(width: number, height: number): this {
-    this.texture.setSize(width, height, this.texture.depth)
+    if (width !== this.texture.width || height !== this.texture.height) {
+      this.texture.setSize(width, height, this.texture.depth)
+      this.texture.needsUpdate = true
+      if (this.builder != null) {
+        this.generateTexture(this.builder)
+      }
+    }
     return this
   }
 
@@ -68,10 +77,11 @@ export abstract class ProceduralTextureNode extends TempNode {
     builder: NodeBuilder
   ): Node
 
-  override setup(builder: NodeBuilder): unknown {
+  private generateTexture(builder: NodeBuilder): void {
     const { width, height } = this.texture
 
-    const computeNode = Fn(() => {
+    this.computeNode?.dispose()
+    this.computeNode = Fn(() => {
       const id = instanceIndex
       const x = id.mod(width)
       const y = id.div(width)
@@ -89,12 +99,20 @@ export abstract class ProceduralTextureNode extends TempNode {
       )
     })().compute(width * height, [8, 8, 1])
 
-    void builder.renderer.compute(computeNode)
+    void builder.renderer.compute(this.computeNode)
+  }
+
+  override setup(builder: NodeBuilder): unknown {
+    this.builder = builder
+    this.generateTexture(builder)
 
     return super.setup(builder)
   }
 
   override dispose(): void {
+    this.computeNode?.dispose()
+    this.computeNode = undefined
+    this.builder = undefined
     this.texture.dispose()
     super.dispose()
   }

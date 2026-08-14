@@ -180,9 +180,8 @@ export class CloudsMarchNode extends TempNode {
   shadowBuffer?: Texture3DNode | null
   shadowUniforms?: CloudShadowUniforms | null
 
-  // Static options, equivalent to the defines in the WebGL version. Changing
-  // any of these requires rebuilding the node graph (e.g. by setting
-  // needsUpdate on the post-processing that owns this node).
+  // Static options, equivalent to the defines in the WebGL version. The
+  // internal material is rebuilt automatically when one of these changes.
   // Consumes the BSM when true (and the shadow inputs are provided); false
   // restores the M2-only image with zero shadow optical depth, for
   // regression bisecting:
@@ -235,10 +234,12 @@ export class CloudsMarchNode extends TempNode {
   readonly resolution: UniformNode<Vector2> = uniform(new Vector2()).setName(
     'resolution'
   )
-  readonly cameraNear: UniformNode<number> =
-    uniform(0).setName('cloudsMarchCameraNear')
-  readonly cameraFar: UniformNode<number> =
-    uniform(0).setName('cloudsMarchCameraFar')
+  readonly cameraNear: UniformNode<number> = uniform(0).setName(
+    'cloudsMarchCameraNear'
+  )
+  readonly cameraFar: UniformNode<number> = uniform(0).setName(
+    'cloudsMarchCameraFar'
+  )
   readonly cameraHeight: UniformNode<number> =
     uniform(0).setName('cameraHeight')
   // Set this before calling update(). CloudsNode drives it with its frame
@@ -341,6 +342,8 @@ export class CloudsMarchNode extends TempNode {
   private rendererState?: RendererUtils.RendererState
   private targetWidth = 0
   private targetHeight = 0
+  private materialCacheKey?: number
+  private logarithmicDepthBuffer = false
 
   // Copies of the camera matrices for the reprojection matrices, which the
   // temporal resolve consumes in M4. copyCameraSettings() can be called
@@ -550,6 +553,7 @@ export class CloudsMarchNode extends TempNode {
       return
     }
 
+    this.updateMaterial()
     this.copyCameraSettings(camera)
 
     this.rendererState = resetRendererState(renderer, this.rendererState)
@@ -561,9 +565,9 @@ export class CloudsMarchNode extends TempNode {
   }
 
   private setupFragmentNode(
-    builder: NodeBuilder,
     atmosphereContext: AtmosphereContext,
-    camera: Camera
+    camera: Camera,
+    logarithmicDepthBuffer: boolean
   ): MRTNode {
     const { worldToUnit } = atmosphereContext.parametersNode
     const { matrixWorldToECEF, matrixECEFToWorld, sunDirectionECEF } =
@@ -577,7 +581,7 @@ export class CloudsMarchNode extends TempNode {
     const { minHeight, maxHeight, shadowTopHeight } = this.layerUniforms
 
     const perspective = camera.isPerspectiveCamera === true
-    const logarithmic = builder.renderer.logarithmicDepthBuffer
+    const logarithmic = logarithmicDepthBuffer
 
     // Vertex-stage ray setup, ported from clouds.vert. Only genuinely
     // per-texel values are interpolated across the fullscreen triangle; values
@@ -737,7 +741,9 @@ export class CloudsMarchNode extends TempNode {
         : null
 
     const marchedOutput = Fn(() => {
-      const cameraPosition = cameraPositionECEF.add(altitudeCorrection).toConst()
+      const cameraPosition = cameraPositionECEF
+        .add(altitudeCorrection)
+        .toConst()
       const rayDirection = vRayDirection.normalize().toConst()
       const cosTheta = dot(sunDirectionECEF, rayDirection).toConst()
 
@@ -1032,6 +1038,30 @@ export class CloudsMarchNode extends TempNode {
     })
   }
 
+  private updateMaterial(force = false): void {
+    const atmosphereContext = this.atmosphereContext
+    const camera = this.camera
+    if (atmosphereContext == null || camera == null) {
+      return
+    }
+    const cacheKey = hash(
+      this.customCacheKey(),
+      +(camera.isPerspectiveCamera === true),
+      +this.logarithmicDepthBuffer
+    )
+    if (force || cacheKey !== this.materialCacheKey) {
+      this.material.mrtNode = this.setupFragmentNode(
+        atmosphereContext,
+        camera,
+        this.logarithmicDepthBuffer
+      )
+      this.material.needsUpdate = true
+      this.materialCacheKey = cacheKey
+      this.previousProjectionMatrix = undefined
+      this.previousViewMatrix = undefined
+    }
+  }
+
   override setup(builder: NodeBuilder): unknown {
     const atmosphereContext = getAtmosphereContext(builder)
     this.atmosphereContext = atmosphereContext
@@ -1041,13 +1071,8 @@ export class CloudsMarchNode extends TempNode {
       return super.setup(builder)
     }
     this.camera = camera
-
-    this.material.mrtNode = this.setupFragmentNode(
-      builder,
-      atmosphereContext,
-      camera
-    )
-    this.material.needsUpdate = true
+    this.logarithmicDepthBuffer = builder.renderer.logarithmicDepthBuffer
+    this.updateMaterial(true)
 
     return super.setup(builder)
   }

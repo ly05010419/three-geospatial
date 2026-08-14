@@ -53,11 +53,7 @@ const CAMERA_EULER = new Euler(...CAMERA_ROTATION)
 const CAMERA_TARGET_VECTOR = new Vector3()
   .fromArray(CAMERA_POSITION)
   .add(new Vector3(0, 0, -1000).applyEuler(CAMERA_EULER))
-const CAMERA_TARGET = CAMERA_TARGET_VECTOR.toArray() as [
-  number,
-  number,
-  number
-]
+const CAMERA_TARGET = CAMERA_TARGET_VECTOR.toArray() as [number, number, number]
 const CAMERA_UP = new Vector3(0, 1, 0).applyEuler(CAMERA_EULER).toArray() as [
   number,
   number,
@@ -170,18 +166,15 @@ const Content: FC<StoryProps> = () => {
     qualityPreset => {
       cloudsNode.qualityPreset = qualityPreset
       cloudsNode.resetHistory()
-      postProcessing.needsUpdate = true
     }
   )
 
   // The M2/M3 bisect toggle: false renders without the BSM contribution.
-  // A static option, so the node graph must rebuild:
   useTransientControl(
     ({ bsm }: StoryArgs) => bsm,
     bsm => {
       if (cloudsNode.bsm !== bsm) {
         cloudsNode.bsm = bsm
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -194,7 +187,6 @@ const Content: FC<StoryProps> = () => {
       if (cloudsNode.temporalUpscale !== temporalUpscale) {
         cloudsNode.temporalUpscale = temporalUpscale
         cloudsNode.resetHistory()
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -205,7 +197,6 @@ const Content: FC<StoryProps> = () => {
       if (cloudsNode.lightShafts !== lightShafts) {
         cloudsNode.lightShafts = lightShafts
         cloudsNode.resetHistory()
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -215,7 +206,6 @@ const Content: FC<StoryProps> = () => {
     haze => {
       if (cloudsNode.haze !== haze) {
         cloudsNode.haze = haze
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -225,7 +215,6 @@ const Content: FC<StoryProps> = () => {
     shapeDetail => {
       if (cloudsNode.shapeDetail !== shapeDetail) {
         cloudsNode.shapeDetail = shapeDetail
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -235,7 +224,6 @@ const Content: FC<StoryProps> = () => {
     turbulence => {
       if (cloudsNode.turbulence !== turbulence) {
         cloudsNode.turbulence = turbulence
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -245,7 +233,6 @@ const Content: FC<StoryProps> = () => {
     marchDebugShow => {
       if (cloudsNode.marchNode.debugShow !== marchDebugShow) {
         cloudsNode.marchNode.debugShow = marchDebugShow
-        postProcessing.needsUpdate = true
       }
     }
   )
@@ -255,7 +242,6 @@ const Content: FC<StoryProps> = () => {
     resolveDebugShow => {
       if (cloudsNode.resolveNode.debugShow !== resolveDebugShow) {
         cloudsNode.resolveNode.debugShow = resolveDebugShow
-        postProcessing.needsUpdate = true
       }
     }
   )

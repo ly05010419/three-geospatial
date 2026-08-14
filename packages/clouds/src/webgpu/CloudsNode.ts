@@ -18,14 +18,7 @@ import {
   type PerspectiveCamera
 } from 'three'
 import { hash } from 'three/src/nodes/core/NodeUtils.js'
-import {
-  ivec2,
-  screenCoordinate,
-  screenUV,
-  texture,
-  texture3D,
-  uniform
-} from 'three/tsl'
+import { screenUV, texture, texture3D, uniform } from 'three/tsl'
 import {
   NodeUpdateType,
   TempNode,
@@ -69,6 +62,7 @@ import {
   type CloudLayerUniforms,
   type CloudParameterUniforms
 } from './uniforms'
+import { sampleRedBilinear } from './varianceClipping'
 
 const sizeScratch = /*#__PURE__*/ new Vector2()
 const vectorScratch1 = /*#__PURE__*/ new Vector3()
@@ -99,6 +93,9 @@ export class CloudsNode extends TempNode {
   readonly shapeDetailRepeat = new Vector3().setScalar(0.006)
   readonly shapeDetailOffset = new Vector3()
   readonly turbulenceRepeat = new Vector2().setScalar(20)
+  readonly localWeatherVelocity = new Vector2()
+  readonly shapeVelocity = new Vector3()
+  readonly shapeDetailVelocity = new Vector3()
 
   // Uniforms shared by reference between the shadow and march nodes (see D6
   // in .port-plan.md):
@@ -120,6 +117,7 @@ export class CloudsNode extends TempNode {
 
   private frame = 0
   private readonly frameUniform: UniformNode<number>
+  private _qualityPreset: QualityPreset = 'high'
 
   // Textures created by this node (placeholders and the default assets from
   // loadDefaultTextures()), owned and disposed together with it. Textures
@@ -130,6 +128,7 @@ export class CloudsNode extends TempNode {
   private proceduralShape?: ProceduralTexture3DNode
   private proceduralShapeDetail?: ProceduralTexture3DNode
   private proceduralTurbulence?: ProceduralTextureNode
+  private proceduralSTBN?: ProceduralTexture3DNode
 
   // Captured in setup() for the CPU shadow-map update in updateBefore():
   private atmosphereContext?: AtmosphereContext
@@ -179,10 +178,10 @@ export class CloudsNode extends TempNode {
     const [localWeather, shape, shapeDetail, turbulence, stbn] =
       this.placeholderTextures
     this.localWeatherTextureNode = texture(localWeather)
-    this.shapeTextureNode = texture3D(shape as Data3DTexture)
-    this.shapeDetailTextureNode = texture3D(shapeDetail as Data3DTexture)
+    this.shapeTextureNode = texture3D(shape)
+    this.shapeDetailTextureNode = texture3D(shapeDetail)
     this.turbulenceTextureNode = texture(turbulence)
-    this.stbnTextureNode = texture3D(stbn as Data3DTexture)
+    this.stbnTextureNode = texture3D(stbn)
 
     this.frameUniform = uniform(0, 'int').setName('frame')
 
@@ -244,9 +243,8 @@ export class CloudsNode extends TempNode {
   }
 
   // Consumes the BSM when true (the default); false restores the M2-only
-  // image with zero shadow optical depth, for regression bisecting. Changing
-  // this requires rebuilding the node graph (e.g. by setting needsUpdate on
-  // the post-processing that owns this node):
+  // image with zero shadow optical depth, for regression bisecting. The
+  // internal material rebuild is automatic:
   get bsm(): boolean {
     return this.marchNode.bsm
   }
@@ -295,7 +293,12 @@ export class CloudsNode extends TempNode {
     this.parameterUniforms.coverage.value = value
   }
 
+  get qualityPreset(): QualityPreset {
+    return this._qualityPreset
+  }
+
   set qualityPreset(value: QualityPreset) {
+    this._qualityPreset = value
     const preset = qualityPresets[value]
 
     this.resolutionScale = preset.resolutionScale
@@ -333,6 +336,7 @@ export class CloudsNode extends TempNode {
       preset.clouds.maxShadowLengthRayDistance
 
     this.shadowNode.shadowMaps.cascadeCount = preset.shadow.cascadeCount
+    this.marchNode.shadowCascadeCount = preset.shadow.cascadeCount
     this.shadowNode.shadowMaps.mapSize.copy(preset.shadow.mapSize)
     this.shadowNode.maxIterationCount.value = preset.shadow.maxIterationCount
     this.shadowNode.minStepSize.value = preset.shadow.minStepSize
@@ -376,7 +380,7 @@ export class CloudsNode extends TempNode {
     if (value instanceof ProceduralTextureNode) {
       this.proceduralLocalWeather = value
       this.localWeatherTextureNode.value = value.texture
-    } else if ((value as TextureNode).isTextureNode === true) {
+    } else if ((value as TextureNode).isTextureNode) {
       this.proceduralLocalWeather = undefined
       this.localWeatherTextureNode.value = (value as TextureNode).value
     } else {
@@ -395,7 +399,7 @@ export class CloudsNode extends TempNode {
     if (value instanceof ProceduralTexture3DNode) {
       this.proceduralShape = value
       this.shapeTextureNode.value = value.texture
-    } else if ((value as Texture3DNode).isTexture3DNode === true) {
+    } else if ((value as Texture3DNode).isTexture3DNode) {
       this.proceduralShape = undefined
       this.shapeTextureNode.value = (value as Texture3DNode).value
     } else {
@@ -418,7 +422,7 @@ export class CloudsNode extends TempNode {
     if (value instanceof ProceduralTexture3DNode) {
       this.proceduralShapeDetail = value
       this.shapeDetailTextureNode.value = value.texture
-    } else if ((value as Texture3DNode).isTexture3DNode === true) {
+    } else if ((value as Texture3DNode).isTexture3DNode) {
       this.proceduralShapeDetail = undefined
       this.shapeDetailTextureNode.value = (value as Texture3DNode).value
     } else {
@@ -435,7 +439,7 @@ export class CloudsNode extends TempNode {
     if (value instanceof ProceduralTextureNode) {
       this.proceduralTurbulence = value
       this.turbulenceTextureNode.value = value.texture
-    } else if ((value as TextureNode).isTextureNode === true) {
+    } else if ((value as TextureNode).isTextureNode) {
       this.proceduralTurbulence = undefined
       this.turbulenceTextureNode.value = (value as TextureNode).value
     } else {
@@ -445,15 +449,18 @@ export class CloudsNode extends TempNode {
   }
 
   get stbnTexture(): Data3DTexture | Texture3DNode | ProceduralTexture3DNode {
-    return this.stbnTextureNode.value as Data3DTexture
+    return this.proceduralSTBN ?? (this.stbnTextureNode.value as Data3DTexture)
   }
 
   set stbnTexture(value: CloudsTexture3DInput) {
     if (value instanceof ProceduralTexture3DNode) {
+      this.proceduralSTBN = value
       this.stbnTextureNode.value = value.texture
-    } else if ((value as Texture3DNode).isTexture3DNode === true) {
+    } else if ((value as Texture3DNode).isTexture3DNode) {
+      this.proceduralSTBN = undefined
       this.stbnTextureNode.value = (value as Texture3DNode).value
     } else {
+      this.proceduralSTBN = undefined
       this.stbnTextureNode.value = value as Data3DTexture
     }
   }
@@ -472,13 +479,18 @@ export class CloudsNode extends TempNode {
     return this
   }
 
+  async loadDefaultTexturesAsync(): Promise<this> {
+    this.loadDefaultTextures()
+    await this.defaultTextures?.ready
+    return this
+  }
+
   getTextureNode(name: 'output' | 'shadowLength' = 'output'): TextureNode {
     return this.resolveNode.getTextureNode(name)
   }
 
   getShadowLengthNode(): Node<'float'> {
-    return this.getTextureNode('shadowLength').load(ivec2(screenCoordinate.xy))
-      .r
+    return sampleRedBilinear(this.getTextureNode('shadowLength'), screenUV)
   }
 
   // Ported from the shadow map portion of CloudsEffect.updateSharedUniforms.
@@ -526,14 +538,20 @@ export class CloudsNode extends TempNode {
     ++this.frame
     this.frameUniform.value = this.frame
 
-    // CPU-side shared uniform updates. Velocity integration of the offset
-    // uniforms is added in later milestones:
+    const deltaTime = frame.deltaTime ?? 0
+    this.localWeatherOffset.addScaledVector(
+      this.localWeatherVelocity,
+      deltaTime
+    )
+    this.shapeOffset.addScaledVector(this.shapeVelocity, deltaTime)
+    this.shapeDetailOffset.addScaledVector(this.shapeDetailVelocity, deltaTime)
+
+    // CPU-side shared uniform updates:
     updateCloudLayerUniforms(this.layerUniforms, this.cloudLayers)
     this.updateShadowMaps()
 
-    // Keep the consumer's unrolled cascade count in sync with the producer.
-    // Changing the cascade count still requires rebuilding the node graph
-    // (see D7 in .port-plan.md):
+    // Keep direct shadowMaps mutations synchronized as well. Quality presets
+    // update both sides immediately so material rebuilds see the new count:
     this.marchNode.shadowCascadeCount = this.shadowNode.cascadeCount
 
     // The facade drives the sub-passes explicitly to guarantee their order;
@@ -556,9 +574,7 @@ export class CloudsNode extends TempNode {
     const atmosphereContext = getAtmosphereContext(builder)
     this.atmosphereContext = atmosphereContext
     this.camera = atmosphereContext.camera ?? builder.camera ?? undefined
-    return this.resolutionScale === 1
-      ? this.getTextureNode('output').load(ivec2(screenCoordinate.xy))
-      : this.getTextureNode('output').sample(screenUV)
+    return this.getTextureNode('output').sample(screenUV)
   }
 
   override dispose(): void {
