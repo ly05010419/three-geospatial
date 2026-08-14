@@ -1,4 +1,15 @@
 <style>
+  /* The public WebGPU showcase only exposes the Clouds demos. */
+  #list-item-guide {
+    display: none !important;
+  }
+
+  /* Keep the showcase focused on the Clouds stories, without Storybook's
+     global settings menu. */
+  button[aria-label='Settings'] {
+    display: none !important;
+  }
+
   .docblock-argstable-body tr[title] {
     position: relative;
     height: 41px;

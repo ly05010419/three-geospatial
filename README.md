@@ -39,7 +39,11 @@ Available WebGPU stories:
 - `clouds/Clouds > Basic`
 - `clouds/Clouds > Custom Layers`
 - `clouds/Clouds > Vanilla`
-- procedural-texture and diagnostic stories
+
+The production demo is available at
+[`clouds.ceo-online.app`](https://clouds.ceo-online.app/?path=/story/clouds-clouds--basic).
+
+![WebGPU volumetric clouds demo](packages/clouds/docs/webgpu-clouds-basic.png)
 
 Run them locally on port 4004:
 

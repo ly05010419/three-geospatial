@@ -9,7 +9,9 @@ import { mergeConfig, type Plugin, type UserConfig } from 'vite'
 const require = createRequire(import.meta.url)
 
 const config: StorybookConfig = {
-  stories: ['../src/**/*.@(mdx|stories.@(js|jsx|ts|tsx))'],
+  // This Storybook is the public WebGPU clouds showcase. Keep the sidebar
+  // focused on the three supported demos instead of exposing internal stories.
+  stories: ['../src/clouds/Clouds.stories.tsx'],
   addons: [getAbsolutePath('@storybook/addon-docs')],
   framework: {
     name: getAbsolutePath('@storybook/react-vite'),
@@ -21,7 +23,9 @@ const config: StorybookConfig = {
   },
   features: {
     actions: false,
-    interactions: false
+    changeDetection: false,
+    interactions: false,
+    sidebarOnboardingChecklist: false
   },
 
   staticDirs: [{ from: '../assets', to: '/public' }],

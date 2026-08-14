@@ -144,6 +144,11 @@ Open these pages:
 - [Custom Layers](http://localhost:4004/?path=/story/clouds-clouds--custom-layers)
 - [Vanilla](http://localhost:4004/?path=/story/clouds-clouds--vanilla)
 
+The production WebGPU Clouds demo is available at
+[`clouds.ceo-online.app`](https://clouds.ceo-online.app/?path=/story/clouds-clouds--basic).
+
+![WebGPU volumetric clouds demo](docs/webgpu-clouds-basic.png)
+
 ### Custom layers
 
 WebGPU custom layers use the shared `CloudLayers` model and are applied to the

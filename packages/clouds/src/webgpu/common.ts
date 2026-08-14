@@ -264,7 +264,10 @@ export const sampleWeather = (
 }
 
 export const getLayerDensity = /*#__PURE__*/ FnLayout({
-  name: 'getLayerDensity',
+  // Keep the generated WGSL symbol distinct from atmosphere/common's scalar
+  // getLayerDensity. WGSL does not support function overloading, so using the
+  // same symbol name makes any pipeline combining clouds and atmosphere fail.
+  name: 'getCloudLayerDensity',
   type: 'vec4',
   inputs: [
     { name: 'heightFraction', type: 'vec4' },
