@@ -11,6 +11,78 @@ A Three.js and R3F (React Three Fiber) implementation of geospatial volumetric c
 
 This library is part of a project to prototype the rendering aspect of a Web GIS engine. For more details on the background and current status of this project, please refer to the [main README](/README.md).
 
+## WebGPU
+
+The WebGPU implementation is available from the `@takram/three-clouds/webgpu`
+subpath. It uses a node-based API centered on `clouds(depthNode?)` and
+`CloudsNode`, and is not a drop-in replacement for the WebGL `CloudsEffect` or
+the R3F `<Clouds>` component.
+
+```ts
+import { clouds } from '@takram/three-clouds/webgpu'
+
+const cloudsNode = clouds(depthNode).loadDefaultTextures()
+```
+
+The WebGPU implementation currently includes:
+
+- Cloud raymarching with weather, shape, detail, turbulence, haze, phase
+  function, aerial perspective, powder, and ground bounce
+- Cascaded beer shadow maps (BSM) with temporal resolve
+- Temporal upscaling and full-resolution temporal resolve
+- Light shafts through resolved shadow length
+- Default cloud texture loading and quality presets
+- Runtime toggles for BSM, temporal upscaling, light shafts, haze, shape
+  detail, and turbulence
+- Debug views for march UVs, sample count, front depth, shadow length, and
+  resolve velocity
+- A vanilla Three.js WebGPU path without R3F scene helpers
+
+The WebGPU API is not yet fully 1:1 with WebGL:
+
+- A WebGPU R3F `<Clouds>` wrapper is not provided
+- `CloudsNode` does not mirror every `CloudsEffect` getter and setter;
+  advanced parameters are exposed through `parameterUniforms`, `marchNode`,
+  `shadowNode`, and `resolveNode`
+- Custom layer, 3D Tiles, and world-origin rebasing stories are not ported
+- The WebGPU Basic story exposes fewer controls than the WebGL Leva panel
+- Procedural texture nodes are supported, but the validated parity path uses
+  the hosted default texture assets
+
+The WebGPU package still depends on `@takram/three-geospatial` and
+`@takram/three-atmosphere`. It can be used without React or R3F, but it is not
+currently independent of the geospatial and atmosphere packages.
+
+See the [WebGPU Storybook](https://takram-design-engineering.github.io/three-geospatial-webgpu).
+
+### WebGL parity target
+
+The `storybook-webgpu` story `clouds/Clouds > Basic` is the current parity
+target for the WebGL `clouds/Clouds > Basic` story. It uses the frozen
+comparison pose and date, the default hosted weather and shape textures,
+`coverage = 0.3`, `qualityPreset = "high"`, temporal upscaling, BSM shadows,
+haze, and light shafts.
+
+Small differences are expected because WebGL keeps SMAA in the post chain,
+AgX and lens flare use different implementations, temporal noise phases can
+differ after both temporal chains settle, and WebGPU uses 3D storage textures
+for BSM instead of WebGL array render targets.
+
+Recommended local verification:
+
+```sh
+pnpm exec tsc --noEmit -p storybook-webgpu/tsconfig.storybook.json
+pnpm exec nx typecheck clouds
+pnpm exec nx test clouds
+pnpm exec nx build clouds
+```
+
+For visual comparisons, wait at least 120 frames for cloud upscaling and BSM
+history to settle. Structural differences in cloud placement, shadow placement,
+or light-shaft direction should be treated as bugs. Do not use the interactive
+WebGL Basic story for direct RMSE comparisons unless its controls and frozen
+parameters have been locked first.
+
 ## Installation
 
 ```sh
