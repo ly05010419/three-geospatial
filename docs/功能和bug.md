@@ -48,6 +48,39 @@
   - `storybook-webgpu/src/clouds/Clouds-CustomLayers.tsx`
 - 教训/测试要点：静止展示页必须验证长时间稳定性；局部坐标路径必须覆盖带平移的矩阵往返，不能只测 ECEF identity 路径。
 
+## B-20260814-004 Custom Layers 非时序模式仍有随机抖动
+
+- 日期：2026-08-14
+- 现象：云体和云投影已经恢复，但在关闭云动画、日期动画、temporal upscale 与 temporal shadows 后，静止画面仍有细小爬动。
+- 根因：非时序主云 march 和 BSM march 仍轮换 STBN slice；地表阴影 PCF 也无条件使用递增 frame；最终 `dithering` 还把 `time` 混入噪声。
+- 修复方案：
+  - 非时序主云 march 固定使用 STBN 第 0 层。
+  - BSM temporal jitter 关闭时，march 与地表 PCF 都固定使用 STBN 第 0 层。
+  - Basic 渲染组件增加 `enableDithering` 场景配置，Custom Layers 关闭时变 dithering，其他页面保持默认开启。
+- 涉及文件：
+  - `packages/clouds/src/webgpu/CloudsMarchNode.ts`
+  - `packages/clouds/src/webgpu/CloudShadowNode.ts`
+  - `packages/clouds/src/webgpu/CloudsNode.ts`
+  - `storybook-webgpu/src/clouds/Clouds-Basic.tsx`
+  - `storybook-webgpu/src/clouds/Clouds-CustomLayers.tsx`
+- 验证：4004 页面冷启动后云投影清晰可见；相隔 3 秒截图逐像素差异为 0；无新增 console error；Clouds 9/9、Atmosphere 4/4、Storybook typecheck 全部通过。
+
+## B-20260814-005 Basic 云影 resolve 的 WGSL 与 compute 派发崩溃
+
+- 日期：2026-08-14
+- 现象：Basic 报 `vec2<f32>(vec3<u32>)` WGSL 构造错误，随后 `WebGPUBackend.compute` 读取 `null[0]`，云影 resolve 无法运行。
+- 根因：Three r183 的 `TextureSizeNode` 不支持 3D 尺寸；同时手动派发的无 count `computeKernel()` 仍被节点图自动更新，再次以空 dispatch 执行。
+- 修复方案：由阴影 resolution 与 cascade count 显式构造三维纹理边界；March、Resolve、ClearHistory 设置 `NodeUpdateType.NONE`，仅保留 `CloudShadowNode` 的显式三维派发。
+- 验证：Basic 和 Custom Layers 在 4004 iframe 冷启动后均正常出首帧，控制台没有 WGSL、WebGPUBackend.compute 或 GPU validation error。
+
+## B-20260814-006 Storybook mocker 入口 404 导致冷启动挂起
+
+- 日期：2026-08-14
+- 现象：`/vite-inject-mocker-entry.js` 返回 404；简单空模块 fallback 后，冷启动可能一直停在 preparing story。
+- 根因：当前 Storybook 10.4/Vite 7 组合未执行上游带 `filter` 的 resolve hook；真实 runtime 位于 pnpm store 路径，直接 `/@fs` 加载又超出 Vite allow list。
+- 修复方案：在最终 Vite 配置的 pre middleware 中读取并原样响应 Storybook mocker runtime。
+- 验证：入口返回 HTTP 200 和完整 runtime（56,263 bytes），Basic 与 Custom Layers 冷启动均完成。
+
 ## F-20260814-001 WebGPU Basic 云层与日期动画
 
 - 日期：2026-08-14

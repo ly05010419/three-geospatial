@@ -47,6 +47,7 @@ import {
   vec4
 } from 'three/tsl'
 import {
+  NodeUpdateType,
   TempNode,
   type ComputeNode,
   type NodeBuilder,
@@ -505,7 +506,7 @@ export class CloudShadowNode extends TempNode {
     const currentTexture = this.currentTexture
     const depthVelocityTexture = this.depthVelocityTexture
 
-    return Fn(() => {
+    const computeNode = Fn(() => {
       If(
         ivec2(globalId.xy).greaterThanEqual(ivec2(this.resolution)).any(),
         () => {
@@ -542,10 +543,14 @@ export class CloudShadowNode extends TempNode {
       ).toConst()
 
       const rayOrigin = rayDirection.mul(nearFar.x).add(sunPosition).toConst()
+      // A non-temporal BSM has no resolve history to average rotating blue
+      // noise. Freeze its slice so static clouds and their cast shadows do not
+      // shimmer between frames.
+      const stbnFrame = this.temporalJitter ? this.frame : int(0)
       const stbn = getSTBNShadow(
         stbnTextureNode,
         ivec2(globalId.xy),
-        this.frame
+        stbnFrame
       ).toConst()
       const color = marchBSM(
         rayOrigin,
@@ -578,6 +583,8 @@ export class CloudShadowNode extends TempNode {
       // written even when renderer.compute() receives a larger dispatch.
       .computeKernel([8, 8, 1])
       .setName('CloudShadowNode.March')
+    computeNode.updateBeforeType = NodeUpdateType.NONE
+    return computeNode
   }
 
   // Ported from shadowResolve.frag. The kernel writing into writeTexture
@@ -592,7 +599,7 @@ export class CloudShadowNode extends TempNode {
     const depthVelocityNode = texture3D(this.depthVelocityTexture)
     const historyNode = texture3D(historyTexture)
 
-    return Fn(() => {
+    const computeNode = Fn(() => {
       If(
         ivec2(globalId.xy).greaterThanEqual(ivec2(this.resolution)).any(),
         () => {
@@ -602,13 +609,21 @@ export class CloudShadowNode extends TempNode {
       const coord = ivec3(globalId).toConst()
       const cascadeIndex = int(globalId.z).toConst()
       const uv = vec2(globalId.xy).add(0.5).mul(this.texelSize).toConst()
+      // Three's TextureSizeNode is currently hard-coded to uvec2, even for a
+      // texture_3d. Build the known bounds explicitly so WGSL never attempts
+      // the invalid conversion vec2<f32>(textureDimensions(texture_3d)).
+      const maxCoord = ivec3(
+        ivec2(this.resolution).sub(ivec2(1)),
+        cascadeCount - 1
+      ).toConst()
 
       const current = inputNode.load(coord).toConst()
       const outputColor = current.toVar()
 
       const depthVelocity = getClosestFragment(
         depthVelocityNode,
-        coord
+        coord,
+        maxCoord
       ).toConst()
       const velocity = depthVelocity.gb.mul(this.texelSize).toConst()
       const prevUv = uv.sub(velocity).toConst()
@@ -631,6 +646,7 @@ export class CloudShadowNode extends TempNode {
           const clippedHistory = varianceClippingSlice(
             inputNode,
             coord,
+            maxCoord,
             current,
             history,
             this.varianceGamma
@@ -643,12 +659,14 @@ export class CloudShadowNode extends TempNode {
     })()
       .computeKernel([8, 8, 1])
       .setName('CloudShadowNode.Resolve')
+    computeNode.updateBeforeType = NodeUpdateType.NONE
+    return computeNode
   }
 
   private createClearComputeNode(): ComputeNode {
     const resolveTextureA = this.resolveTextureA
     const resolveTextureB = this.resolveTextureB
-    return Fn(() => {
+    const computeNode = Fn(() => {
       If(
         ivec2(globalId.xy).greaterThanEqual(ivec2(this.resolution)).any(),
         () => {
@@ -660,6 +678,8 @@ export class CloudShadowNode extends TempNode {
     })()
       .computeKernel([8, 8, 1])
       .setName('CloudShadowNode.ClearHistory')
+    computeNode.updateBeforeType = NodeUpdateType.NONE
+    return computeNode
   }
 
   // Renders the BSM march and resolve. This node is not updated by the frame

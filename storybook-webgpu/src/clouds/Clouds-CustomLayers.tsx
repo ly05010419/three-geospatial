@@ -60,6 +60,7 @@ export const Story: StoryFC<{}, CloudsStoryArgs> = props => (
   <CloudsStory
     {...props}
     cloudLayers={CUSTOM_LAYERS}
+    enableDithering={false}
     localFrame
     temporalShadows={false}
   />

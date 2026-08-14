@@ -1,5 +1,31 @@
 # 问题与经验
 
+## 2026-08-14：手动派发的 computeKernel 必须关闭节点自动更新
+
+- `computeKernel()` 适合由运行时提供三维 dispatch，但它本身没有标量 count，因此没有可供自动更新阶段使用的默认 `dispatchSize`。
+- 即使业务代码已经调用 `renderer.compute(node, [x, y, z])`，只要该 ComputeNode 仍挂在渲染节点图上，Three 的 `ComputeNode.updateBefore()` 还会再调用一次不带 dispatch 的 `renderer.compute(node)`，最终在 WebGPUBackend 中访问 `null[0]`。
+- 对完全由拥有者手动派发的 March、Resolve、ClearHistory 核，应明确设置 `updateBeforeType = NodeUpdateType.NONE`；每帧只允许 `CloudShadowNode.updateBefore()` 这一处按正确三维尺寸执行。
+
+## 2026-08-14：不要对 3D 纹理使用 r183 的 textureSize TSL 节点
+
+- Three r183 的 `TextureSizeNode` 输出类型固定为 `uvec2`。传入 `texture_3d` 时，WGSL 会生成无效的 `vec2<f32>(textureDimensions(texture_3d))`，因为 `textureDimensions` 实际返回 `vec3<u32>`。
+- 当纹理尺寸本来就由节点拥有者控制时，直接由 `resolution.xy` 与 `cascadeCount` 构造 `ivec3` 最大坐标更可靠，并把同一边界传给深度邻域查找和 variance clipping。
+- TypeScript 和节点图构建无法发现这类错误，必须冷启动真实 WebGPU 页面并检查浏览器的 WGSL 编译输出。
+
+## 2026-08-14：Storybook 虚拟入口 200 还必须提供真实运行时
+
+- Storybook 10 会在 iframe 注入 `/vite-inject-mocker-entry.js`。当前 Storybook/Vite 组合的带 `filter` resolve hook 未生效，直接产生 404。
+- 返回空模块虽然能消除 404，却会让预览初始化停在 preparing story；重导出 pnpm store 真实路径又会被 Vite `server.fs.allow` 拒绝。
+- 最终方案是在 `viteFinal` 的 pre middleware 中读取 Storybook 打包好的 mocker runtime，并原样返回 JavaScript 内容。验收必须同时检查 HTTP 200、预览首帧和终端中没有 fs allow 错误。
+
+## 2026-08-14：静态云场景必须冻结完整的逐帧随机链
+
+- 只关闭 `temporalUpscale` 和 BSM `temporalJitter` 不足以保证静态画面稳定。主云 march、BSM march、地表阴影 PCF 以及最终 dithering 都可能各自引入逐帧变化。
+- 没有历史重建时轮换 STBN slice 只会让噪声持续爬动，不会收敛；非时序路径应固定使用确定性的 STBN slice。
+- 通用 `dithering` 节点把 `time` 混入屏幕坐标。对要求逐像素稳定的对比 Story，需要允许关闭这一级后处理，同时不影响其他 Story 的默认画质。
+- 本次用浏览器连续截图量化，而不是只凭肉眼判断：修复前静置后仍有约 1.7%–2.3% 像素变化；冻结 PCF 并关闭 Custom Layers 的时变 dithering 后，相隔 3 秒两帧的最大通道差、平均差和变化像素数全部为 0。
+- 冷启动 WebGPU 首次编译在高分辨率页面可能超过 45 秒。验收时必须等到 `PostProcessing` 管线完成并出现首帧，再开始稳定性采样，不能把编译中的黑屏误判为运行结果。
+
 ## 2026-08-14：TSL compute 的标量 count 不能当三维派发占位值
 
 - `node.compute(1, workgroupSize)` 中的标量 `1` 不只是默认派发尺寸；Three.js 会为它生成 `instanceIndex < 1` 的着色器边界守卫。

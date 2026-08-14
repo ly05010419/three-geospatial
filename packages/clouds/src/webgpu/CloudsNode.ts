@@ -576,7 +576,13 @@ export class CloudsNode extends TempNode {
         includeTail: false
       }
     )
-    const jitter = getSTBN(this.stbnTextureNode, this.frameUniform)
+    // The surface-shadow PCF must follow the same temporal policy as the BSM
+    // itself. Rotating this STBN slice while temporal shadows are disabled
+    // makes otherwise static cast shadows visibly crawl across the receiver.
+    const jitter = getSTBN(
+      this.stbnTextureNode,
+      this.shadowNode.temporalJitter ? this.frameUniform : int(0)
+    )
 
     // Port of AerialPerspectiveEffect.getShadowRadius(). It adapts the PCF
     // radius to the projected size of one texel in cascade 0, keeping nearby

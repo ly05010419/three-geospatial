@@ -18,9 +18,13 @@
 - 已修复表面云影开启后生成非法 WGSL 的相机矩阵绑定重名问题。
 - 已完成类型检查、Atmosphere 4 项与 Clouds 9 项单元测试、生产 Storybook 构建和 Basic / Custom Layers 浏览器 WebGPU 运行时回归。
 - 已定位 Custom Layers 无云投影的首个根因：`CloudShadowNode` 的 march、resolve、clear 计算核用标量 `compute(1, ...)` 创建，TSL 因此永久编译了 `instanceIndex < 1` 守卫。现已改用无标量 count 的 `computeKernel()`，march 的 3 个级联从近乎全零恢复为每层约 48 万个非零半精度分量。
+- Custom Layers 的静态抖动已彻底消除：非时序主云、非时序 BSM 和地表阴影 PCF 都固定使用 STBN 第 0 层；该 Story 同时关闭随 `time` 变化的最终 dithering。冷启动后相隔 3 秒的两张 2920×1242 浏览器截图在预览 ROI 内逐像素差异为 0。
+- 已在 `http://localhost:4004/?path=/story/clouds-clouds--custom-layers` 完成真实 WebGPU 冷启动回归：低层雾面可见大片蓝灰色云投影，控制台无新增 error；Clouds 9 项、Atmosphere 4 项测试和 Storybook TypeScript 检查全部通过。
+- 已修复 Basic 时序云影 resolve 的 WebGPU WGSL：Three r183 的 `TextureSizeNode` 会把 3D 纹理尺寸错误生成为 `uvec2`，现改用已知的阴影分辨率和 cascade count 显式构造 `ivec3` 边界。
+- 已修复手动派发的 `computeKernel()` 被 Three 节点更新阶段再次自动执行的问题；March、Resolve、ClearHistory 都禁用自动 `updateBefore`，避免无 dispatch size 时访问 `null[0]`。
+- Storybook 10 的 mocker runtime 入口现由 Vite fallback middleware 提供真实 runtime，`/vite-inject-mocker-entry.js` 冷启动返回 200，不再出现 404 或挂起预览。
+- Basic 与 Custom Layers 均在 4004 通过 iframe 冷启动 WebGPU 回归；Custom Layers 地面云影清晰可见，相隔 3 秒的 2920×1242 两帧 3,626,640 个像素全部一致，控制台无 WebGPU/WGSL/compute error。
 
 ## 进行中
 
-- 修复 BSM temporal resolve：GPU 读回确认 `current` 和 `depthVelocity` 已有数据，但 `resolveTextureA/B` 仍然全零。Custom Layers 当前通过 `temporalShadows={false}` 读取已恢复的 current BSM；Basic 的默认时序阴影路径尚未完成验收。
-- 在 `http://localhost:4004/?path=/story/clouds-clouds--custom-layers` 与 WebGL 参考页做同视角可视化对比，必须确认低层雾面出现大片云投影且静止画面不抖。
-- 补充完整测试、生产构建和浏览器控制台回归；完成前不能把云阴影标记为已交付。
+- 当前无阻塞项。`THREE.Clock` 与 Storybook `PopoverProvider.ariaLabel` 仍是第三方开发环境弃用警告，不影响 WebGPU 渲染；项目直接使用的后处理已迁移到 `RenderPipeline`。

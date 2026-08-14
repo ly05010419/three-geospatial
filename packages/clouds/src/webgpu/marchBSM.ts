@@ -19,7 +19,6 @@ import {
   Loop,
   max,
   min,
-  textureSize,
   vec2,
   vec4
 } from 'three/tsl'
@@ -272,11 +271,12 @@ const neighborOffsets: ReadonlyArray<readonly [number, number]> = [
 // layers of the input buffer in the WebGL version; the offsets apply in xy
 // only within the same slice:
 export const getClosestFragment = /*#__PURE__*/ FnVar(
-  (depthVelocityNode: Texture3DNode, coord: Node<'ivec3'>): Node<'vec4'> => {
+  (
+    depthVelocityNode: Texture3DNode,
+    coord: Node<'ivec3'>,
+    maxCoord: Node<'ivec3'>
+  ): Node<'vec4'> => {
     const result = vec4(1e7, 0, 0, 0).toVar()
-    const maxCoord = ivec3(textureSize(depthVelocityNode))
-      .sub(ivec3(1))
-      .toConst()
     for (const [x, y] of neighborOffsets) {
       const neighborCoord = coord
         .add(ivec3(x, y, 0))

@@ -20,7 +20,8 @@ import {
   uniform,
   vec4
 } from 'three/tsl'
-import { PostProcessing, type Renderer } from 'three/webgpu'
+import * as ThreeWebGPU from 'three/webgpu'
+import type { Renderer } from 'three/webgpu'
 
 import {
   getECIToECEFRotationMatrix,
@@ -63,6 +64,14 @@ import { useControl } from '../hooks/useControl'
 import { useGuardedFrame } from '../hooks/useGuardedFrame'
 import { useResource } from '../hooks/useResource'
 import { useTransientControl } from '../hooks/useTransientControl'
+
+// Three r183 exports RenderPipeline at runtime, while the current type package
+// still exposes only its deprecated PostProcessing alias.
+const RenderPipeline = (
+  ThreeWebGPU as typeof ThreeWebGPU & {
+    RenderPipeline: typeof ThreeWebGPU.PostProcessing
+  }
+).RenderPipeline
 
 // Frozen comparison parameters (port plan §3.3). The world coordinate system
 // equals ECEF (matrixWorldToECEF stays identity), and the camera takes the
@@ -135,6 +144,7 @@ const LocalFrameControls: FC<{
 
 const Content: FC<StoryProps> = ({
   cloudLayers,
+  enableDithering = true,
   localFrame = false,
   temporalShadows = true
 }) => {
@@ -223,8 +233,12 @@ const Content: FC<StoryProps> = ({
   )
 
   const postProcessing = useResource(
-    () => new PostProcessing(renderer, toneMappingNode.add(dithering)),
-    [renderer, toneMappingNode]
+    () =>
+      new RenderPipeline(
+        renderer,
+        enableDithering ? toneMappingNode.add(dithering) : toneMappingNode
+      ),
+    [enableDithering, renderer, toneMappingNode]
   )
 
   useGuardedFrame(() => {
@@ -387,6 +401,7 @@ const Content: FC<StoryProps> = ({
 
 export interface StoryProps {
   cloudLayers?: CloudLayers
+  enableDithering?: boolean
   localFrame?: boolean
   temporalShadows?: boolean
 }

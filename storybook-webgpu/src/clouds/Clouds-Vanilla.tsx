@@ -1,7 +1,8 @@
 import { AgXToneMapping, PerspectiveCamera, Scene, Vector3 } from 'three'
 import type { WebGPURendererParameters } from 'three/src/renderers/webgpu/WebGPURenderer.js'
 import { context, pass, toneMapping, uniform, vec4 } from 'three/tsl'
-import { PostProcessing, WebGPURenderer } from 'three/webgpu'
+import * as ThreeWebGPU from 'three/webgpu'
+import { WebGPURenderer } from 'three/webgpu'
 
 import {
   getECIToECEFRotationMatrix,
@@ -16,6 +17,14 @@ import { clouds } from '@yong/three-clouds/webgpu'
 import { dithering, lensFlare } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'
+
+// Three r183 exports RenderPipeline at runtime, while the current type package
+// still exposes only its deprecated PostProcessing alias.
+const RenderPipeline = (
+  ThreeWebGPU as typeof ThreeWebGPU & {
+    RenderPipeline: typeof ThreeWebGPU.PostProcessing
+  }
+).RenderPipeline
 
 const CAMERA_POSITION = new Vector3(
   4529893.894855564,
@@ -93,7 +102,7 @@ async function init(container: HTMLDivElement): Promise<() => void> {
     uniform(10),
     lensFlareNode
   )
-  const postProcessing = new PostProcessing(
+  const postProcessing = new RenderPipeline(
     renderer,
     toneMappingNode.add(dithering)
   )

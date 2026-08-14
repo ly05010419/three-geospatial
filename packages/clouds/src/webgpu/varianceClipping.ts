@@ -209,11 +209,11 @@ export const varianceClippingSlice = /*#__PURE__*/ FnVar(
   (
     inputNode: Texture3DNode,
     coord: Node<'ivec3'>,
+    maxCoord: Node<'ivec3'>,
     current: Node<'vec4'>,
     history: Node<'vec4'>,
     gamma?: Node<'float'>
   ): Node<'vec4'> => {
-    const maxCoord = ivec3(textureSize(inputNode)).sub(ivec3(1)).toConst()
     const neighbors = offsets8.map(([x, y]) =>
       inputNode
         .load(

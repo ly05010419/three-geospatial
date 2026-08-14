@@ -31,6 +31,7 @@ import {
   float,
   Fn,
   If,
+  int,
   ivec3,
   min,
   mix,
@@ -831,7 +832,11 @@ export class CloudsMarchNode extends TempNode {
       const intersectsGround = rayNearFar.lessThan(vec2(0)).any().toConst()
       const intersectsScene = rayNearFar.y.lessThan(rayNearFar.x).toConst()
 
-      const stbn = getSTBN(stbnTexture, this.frame).toConst()
+      // Without temporal reconstruction there is no history pass to converge
+      // the rotating STBN slices. Advancing them would make an otherwise
+      // static scene shimmer forever, so use a deterministic slice instead.
+      const stbnFrame = this.temporalUpscale ? this.frame : int(0)
+      const stbn = getSTBN(stbnTexture, stbnFrame).toConst()
 
       const color = vec4(0).toVar()
       const frontDepth = rayNearFar.y.toVar()
