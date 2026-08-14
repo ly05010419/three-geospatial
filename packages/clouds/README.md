@@ -67,7 +67,25 @@ The WebGPU package still depends on `@takram/three-geospatial` and
 `@takram/three-atmosphere`. It can be used without React or R3F, but it is not
 currently independent of the geospatial and atmosphere packages.
 
-See the [WebGPU Storybook](https://takram-design-engineering.github.io/three-geospatial-webgpu).
+### WebGPU Storybook
+
+The production WebGPU Clouds demo is available at
+[`clouds.ceo-online.app`](https://clouds.ceo-online.app/?path=/story/clouds-clouds--basic).
+It contains the three supported examples: Basic, Custom Layers, and Vanilla.
+
+![WebGPU volumetric clouds demo](docs/webgpu-clouds-basic.png)
+
+To run the same Storybook locally:
+
+```sh
+pnpm nx storybook storybook-webgpu --port=4004 --no-open
+```
+
+Then open:
+
+- [Basic](http://localhost:4004/?path=/story/clouds-clouds--basic)
+- [Custom Layers](http://localhost:4004/?path=/story/clouds-clouds--custom-layers)
+- [Vanilla](http://localhost:4004/?path=/story/clouds-clouds--vanilla)
 
 ### WebGL parity target
 
