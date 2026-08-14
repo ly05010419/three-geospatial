@@ -28,6 +28,11 @@ import { getAtmosphereContext } from './AtmosphereContext'
 import { getIndirectLuminanceToPoint, getSplitIlluminance } from './runtime'
 import { sky } from './SkyNode'
 
+export type SunTransmittanceNodeFactory = (
+  positionECEF: Node<'vec3'>,
+  builder: NodeBuilder
+) => Node<'float'>
+
 export class AerialPerspectiveNode extends TempNode {
   static override get type(): string {
     return 'AerialPerspectiveNode'
@@ -38,6 +43,7 @@ export class AerialPerspectiveNode extends TempNode {
   normalNode?: Node<'vec3'> | null
   skyNode?: Node<'vec3'> | null
   shadowLengthNode?: Node<'float'> | null
+  sunTransmittanceNode?: SunTransmittanceNodeFactory | null
 
   correctGeometricError = true
   lighting = false
@@ -65,7 +71,8 @@ export class AerialPerspectiveNode extends TempNode {
       +this.lighting,
       +this.transmittance,
       +this.inscatter,
-      +this.moonScattering
+      +this.moonScattering,
+      +(this.sunTransmittanceNode != null)
     )
   }
 
@@ -179,8 +186,14 @@ export class AerialPerspectiveNode extends TempNode {
           normalECEF,
           sunDirectionECEF
         )
+
+        const sunTransmittance =
+          this.sunTransmittanceNode?.(
+            positionUnit.add(altitudeCorrectionUnit).div(worldToUnit),
+            builder
+          ) ?? 1
         let illuminance = add(
-          solarIlluminance.get('direct'),
+          solarIlluminance.get('direct').mul(sunTransmittance),
           solarIlluminance.get('indirect')
         )
         if (this.moonScattering) {

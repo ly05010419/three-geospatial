@@ -4,7 +4,7 @@ import type { Meta, StoryFn } from '@storybook/react-vite'
 import { ToneMappingMode } from 'postprocessing'
 
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { Clouds } from '@takram/three-clouds/r3f'
+import { Clouds } from '@yong/three-clouds/r3f'
 import { LensFlare } from '@takram/three-geospatial-effects/r3f'
 
 export default {

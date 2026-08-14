@@ -572,10 +572,11 @@ export class CloudShadowNode extends TempNode {
         textureStore(depthVelocityTexture, globalId, vec4(color.x, velocity, 0))
       }
     })()
-      .compute(
-        1, // Normally overridden by update() with the sized dispatch.
-        [8, 8, 1]
-      )
+      // update() supplies the full three-dimensional dispatch. computeKernel
+      // deliberately has no scalar count: compute(1, ...) would permanently
+      // compile an instanceIndex < 1 guard, so only the first texel could be
+      // written even when renderer.compute() receives a larger dispatch.
+      .computeKernel([8, 8, 1])
       .setName('CloudShadowNode.March')
   }
 
@@ -640,10 +641,7 @@ export class CloudShadowNode extends TempNode {
 
       textureStore(writeTexture, globalId, outputColor)
     })()
-      .compute(
-        1, // Normally overridden by update() with the sized dispatch.
-        [8, 8, 1]
-      )
+      .computeKernel([8, 8, 1])
       .setName('CloudShadowNode.Resolve')
   }
 
@@ -660,10 +658,7 @@ export class CloudShadowNode extends TempNode {
       textureStore(resolveTextureA, globalId, vec4(0))
       textureStore(resolveTextureB, globalId, vec4(0))
     })()
-      .compute(
-        1, // Normally overridden by update() with the sized dispatch.
-        [8, 8, 1]
-      )
+      .computeKernel([8, 8, 1])
       .setName('CloudShadowNode.ClearHistory')
   }
 

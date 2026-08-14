@@ -48,10 +48,10 @@ import {
   createCloudParameterUniforms,
   loadDefaultCloudTextures,
   updateCloudLayerUniforms
-} from '@takram/three-clouds/webgpu'
+} from '@yong/three-clouds/webgpu'
 import { Ellipsoid, lerp } from '@takram/three-geospatial'
 
-import { CloudLayers } from '@takram/three-clouds'
+import { CloudLayers } from '@yong/three-clouds'
 import { Vector2 } from 'three'
 
 import type { StoryFC } from '../components/createStory'

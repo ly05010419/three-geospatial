@@ -5,7 +5,7 @@ import {
   CloudShapeNode,
   LocalWeatherNode,
   TurbulenceNode
-} from '@takram/three-clouds/webgpu'
+} from '@yong/three-clouds/webgpu'
 
 import { createStory } from '../components/createStory'
 import { Story as Story2D } from './ProceduralTexture-2D'

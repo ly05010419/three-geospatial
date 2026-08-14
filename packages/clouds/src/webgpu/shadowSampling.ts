@@ -47,6 +47,10 @@ export interface CloudShadowSamplingOptions {
   cascadeCount?: number
   // Equivalent to the SHADOW_SAMPLE_COUNT define in the WebGL version:
   shadowSampleCount?: number
+  // Cloud self-shadowing includes the optical-depth tail. Surface shadows
+  // intentionally omit it to match AerialPerspectiveEffect in WebGL, where
+  // atmospheric inscatter already softens distant ground shadows.
+  includeTail?: boolean
 }
 
 const DEFAULT_CASCADE_COUNT = 3
@@ -239,10 +243,7 @@ export const getFadedCascadeIndex = (
   )
 }
 
-type GetShadowUvArgs = [
-  worldPosition: Node<'vec3'>,
-  cascadeIndex: Node<'int'>
-]
+type GetShadowUvArgs = [worldPosition: Node<'vec3'>, cascadeIndex: Node<'int'>]
 
 // Note the BSM march in CloudShadowNode must unproject the texels using the
 // inverse of the same shadow matrices with the identical NDC convention
@@ -301,6 +302,7 @@ export const readShadowOpticalDepth = (
   options: CloudShadowSamplingOptions = {}
 ): ShaderNodeFn<ProxiedTuple<ReadShadowOpticalDepthArgs>> => {
   const cascadeCount = parseCascadeCount(options)
+  const includeTail = options.includeTail ?? true
 
   return FnVar(
     (
@@ -321,7 +323,8 @@ export const readShadowOpticalDepth = (
         0,
         distanceToTop.sub(distanceOffset).sub(shadow.r)
       ).toConst()
-      return min(shadow.b.add(shadow.a), shadow.g.mul(distanceToFront))
+      const maxOpticalDepth = includeTail ? shadow.b.add(shadow.a) : shadow.b
+      return min(maxOpticalDepth, shadow.g.mul(distanceToFront))
     }
   )
 }
@@ -362,7 +365,10 @@ export const sampleShadowOpticalDepthPCF = (
 
       // Return 0 when the uv is outside of the cascade:
       If(
-        uv.greaterThanEqual(vec2(0)).all().and(uv.lessThanEqual(vec2(1)).all()),
+        uv
+          .greaterThanEqual(vec2(0))
+          .all()
+          .and(uv.lessThanEqual(vec2(1)).all()),
         () => {
           If(radius.lessThan(0.1), () => {
             result.assign(

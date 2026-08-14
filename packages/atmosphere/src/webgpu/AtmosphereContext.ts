@@ -24,8 +24,13 @@ export class AtmosphereContext extends AtmosphereContextBase {
   matrixECEFToWorld = uniform('mat4')
     .setName('matrixECEFToWorld')
     .onRenderUpdate((_, { value }) => {
-      // The matrixWorldToECEF must be orthogonal.
-      value.copy(this.matrixWorldToECEF.value).transpose()
+      // matrixWorldToECEF is a rigid transform, not just a rotation: local
+      // reference frames also contain the ECEF origin in their translation.
+      // A transpose only inverts the rotation and moves the translation into
+      // the homogeneous row, which corrupts point transforms, temporal
+      // reprojection and cloud-shadow sampling. Invert the complete affine
+      // transform instead.
+      value.copy(this.matrixWorldToECEF.value).invert()
     })
 
   cameraPositionECEF = uniform('vec3')

@@ -28,13 +28,13 @@ import {
 } from 'three/tsl'
 import { NodeMaterial, type Renderer } from 'three/webgpu'
 
-import { CloudLayers, DEFAULT_LOCAL_WEATHER_URL } from '@takram/three-clouds'
+import { CloudLayers, DEFAULT_LOCAL_WEATHER_URL } from '@yong/three-clouds'
 import {
   createCloudLayerUniforms,
   createCloudParameterUniforms,
   sampleWeather,
   updateCloudLayerUniforms
-} from '@takram/three-clouds/webgpu'
+} from '@yong/three-clouds/webgpu'
 import type { Node } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'

@@ -12,7 +12,7 @@ import {
   aerialPerspective,
   AtmosphereContext
 } from '@takram/three-atmosphere/webgpu'
-import { clouds } from '@takram/three-clouds/webgpu'
+import { clouds } from '@yong/three-clouds/webgpu'
 import { dithering, lensFlare } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'

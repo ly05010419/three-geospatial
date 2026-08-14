@@ -44,7 +44,7 @@ import {
   type Renderer
 } from 'three/webgpu'
 
-import { bayerIndex, bayerOffsets } from '@takram/three-clouds/webgpu'
+import { bayerIndex, bayerOffsets } from '@yong/three-clouds/webgpu'
 import type { Node } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'

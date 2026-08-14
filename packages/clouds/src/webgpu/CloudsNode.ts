@@ -11,6 +11,7 @@
 import {
   Data3DTexture,
   Matrix3,
+  Matrix4,
   Texture,
   Vector2,
   Vector3,
@@ -18,7 +19,21 @@ import {
   type PerspectiveCamera
 } from 'three'
 import { hash } from 'three/src/nodes/core/NodeUtils.js'
-import { screenUV, texture, texture3D, uniform } from 'three/tsl'
+import {
+  exp,
+  float,
+  int,
+  max,
+  remapClamp,
+  screenSize,
+  screenUV,
+  texture,
+  texture3D,
+  uniform,
+  vec2,
+  vec3,
+  vec4
+} from 'three/tsl'
 import {
   NodeUpdateType,
   TempNode,
@@ -37,6 +52,7 @@ import { lerp } from '@takram/three-geospatial'
 import type { Node } from '@takram/three-geospatial/webgpu'
 
 import type { CascadedShadowMaps } from '../CascadedShadowMaps'
+import type { CloudLayerLike } from '../CloudLayer'
 import { CloudLayers } from '../CloudLayers'
 import {
   CLOUD_SHAPE_DETAIL_TEXTURE_SIZE,
@@ -46,6 +62,7 @@ import { defaults, qualityPresets, type QualityPreset } from '../qualityPresets'
 import { CloudShadowNode } from './CloudShadowNode'
 import { CloudsMarchNode } from './CloudsMarchNode'
 import { CloudsResolveNode } from './CloudsResolveNode'
+import { getSTBN, type LocalWeatherChannels } from './common'
 import {
   configurePlaceholder2DTexture,
   configurePlaceholder3DTexture,
@@ -55,6 +72,7 @@ import {
 } from './defaultTextures'
 import { ProceduralTexture3DNode } from './ProceduralTexture3DNode'
 import { ProceduralTextureNode } from './ProceduralTextureNode'
+import { sampleShadowOpticalDepth } from './shadowSampling'
 import {
   createCloudLayerUniforms,
   createCloudParameterUniforms,
@@ -96,6 +114,19 @@ export class CloudsNode extends TempNode {
   readonly localWeatherVelocity = new Vector2()
   readonly shapeVelocity = new Vector3()
   readonly shapeDetailVelocity = new Vector3()
+
+  // Explicit camera uniforms for the surface-shadow consumer. Using a
+  // ReferenceNode here collides with the fullscreen pass' built-in
+  // object.viewMatrix binding and produces an invalid WGSL member name.
+  private readonly surfaceViewMatrix = uniform(new Matrix4()).setName(
+    'cloudSurfaceViewMatrix'
+  )
+  private readonly surfaceProjectionMatrix = uniform(new Matrix4()).setName(
+    'cloudSurfaceProjectionMatrix'
+  )
+  private readonly surfaceCameraNear = uniform(0).setName(
+    'cloudSurfaceCameraNear'
+  )
 
   // Uniforms shared by reference between the shadow and march nodes (see D6
   // in .port-plan.md):
@@ -291,6 +322,21 @@ export class CloudsNode extends TempNode {
 
   set coverage(value: number) {
     this.parameterUniforms.coverage.value = value
+  }
+
+  // Replaces all four layers and synchronizes the channel swizzles baked into
+  // the shadow and primary march shaders. Mutating cloudLayers directly is
+  // still supported for numeric parameters, but channel changes must go
+  // through this method so both consumers are rebuilt consistently.
+  setCloudLayers(layers: readonly CloudLayerLike[]): this {
+    this.cloudLayers.set(layers)
+    const channels = this.cloudLayers
+      .localWeatherChannels as LocalWeatherChannels
+    this.shadowNode.localWeatherChannels = channels
+    this.marchNode.localWeatherChannels = channels
+    updateCloudLayerUniforms(this.layerUniforms, this.cloudLayers)
+    this.resetHistory()
+    return this
   }
 
   get qualityPreset(): QualityPreset {
@@ -493,6 +539,94 @@ export class CloudsNode extends TempNode {
     return sampleRedBilinear(this.getTextureNode('shadowLength'), screenUV)
   }
 
+  // Returns the fraction of direct sunlight reaching a scene surface. This
+  // is the WebGPU counterpart of AtmosphereShadow consumed by the WebGL
+  // AerialPerspectiveEffect. The input is an altitude-corrected ECEF position
+  // in meters, matching the WebGL sampling contract.
+  getSunTransmittanceNode(
+    positionECEF: Node<'vec3'>,
+    builder: NodeBuilder
+  ): Node<'float'> {
+    const atmosphereContext = getAtmosphereContext(builder)
+    const camera = atmosphereContext.camera ?? builder.camera
+    if (camera == null) {
+      return float(1)
+    }
+
+    const altitudeCorrection: Node<'vec3'> = atmosphereContext.correctAltitude
+      ? atmosphereContext.altitudeCorrectionECEF
+      : vec3(0)
+    const sampleOpticalDepth = sampleShadowOpticalDepth(
+      this.shadowNode.getTextureNode('output'),
+      this.shadowNode.shadowUniforms,
+      {
+        bottomRadius: float(atmosphereContext.parameters.bottomRadius),
+        sunDirectionECEF: atmosphereContext.sunDirectionECEF,
+        shadowTopHeight: this.layerUniforms.shadowTopHeight,
+        matrixECEFToWorld: atmosphereContext.matrixECEFToWorld,
+        altitudeCorrectionECEF: altitudeCorrection,
+        viewMatrix: this.surfaceViewMatrix,
+        cameraNear: this.surfaceCameraNear,
+        temporalJitter: vec2(0),
+        resolution: screenSize
+      },
+      {
+        cascadeCount: this.shadowNode.cascadeCount,
+        shadowSampleCount: this.marchNode.shadowSampleCount,
+        includeTail: false
+      }
+    )
+    const jitter = getSTBN(this.stbnTextureNode, this.frameUniform)
+
+    // Port of AerialPerspectiveEffect.getShadowRadius(). It adapts the PCF
+    // radius to the projected size of one texel in cascade 0, keeping nearby
+    // receivers sharp and distant receivers stable instead of applying a
+    // fixed blur everywhere.
+    const worldPosition = atmosphereContext.matrixECEFToWorld
+      .mul(vec4(positionECEF.sub(altitudeCorrection), 1))
+      .xyz.toConst()
+    const shadowMatrix = this.shadowNode.shadowUniforms.shadowMatrices
+      .element(int(0))
+      .toConst()
+    const inverseShadowMatrix = this.shadowNode.inverseShadowMatrices
+      .element(int(0))
+      .toConst()
+    const clip = shadowMatrix.mul(vec4(worldPosition, 1)).toVar()
+    clip.assign(clip.div(clip.w))
+
+    const texelSize = this.shadowNode.shadowUniforms.shadowTexelSize
+    const clipX = clip.add(vec4(texelSize.x.mul(2), 0, 0, 0)).toConst()
+    const clipY = clip.add(vec4(0, texelSize.y.mul(2), 0, 0)).toConst()
+    const worldX = inverseShadowMatrix.mul(clipX).toConst()
+    const worldY = inverseShadowMatrix.mul(clipY).toConst()
+
+    const viewProjectionMatrix = this.surfaceProjectionMatrix
+      .mul(this.surfaceViewMatrix)
+      .toConst()
+    const projected = viewProjectionMatrix.mul(vec4(worldPosition, 1)).toVar()
+    const projectedX = viewProjectionMatrix.mul(worldX).toVar()
+    const projectedY = viewProjectionMatrix.mul(worldY).toVar()
+    projected.assign(projected.div(projected.w))
+    projectedX.assign(projectedX.div(projectedX.w))
+    projectedY.assign(projectedY.div(projectedY.w))
+
+    const center = projected.xy.mul(0.5).add(0.5).mul(screenSize).toConst()
+    const offsetX = projectedX.xy.mul(0.5).add(0.5).mul(screenSize).toConst()
+    const offsetY = projectedY.xy.mul(0.5).add(0.5).mul(screenSize).toConst()
+    const projectedTexelSize = max(
+      offsetX.distance(center),
+      offsetY.distance(center)
+    ).toConst()
+    const radius = remapClamp(projectedTexelSize, 10, 50, 0, 3)
+    const opticalDepth = sampleOpticalDepth(
+      positionECEF,
+      float(0),
+      radius,
+      jitter
+    )
+    return exp(opticalDepth.negate())
+  }
+
   // Ported from the shadow map portion of CloudsEffect.updateSharedUniforms.
   // The camera position, the sun direction and the world matrices are
   // recomputed from the atmosphere context values on the CPU, independently
@@ -545,6 +679,15 @@ export class CloudsNode extends TempNode {
     )
     this.shapeOffset.addScaledVector(this.shapeVelocity, deltaTime)
     this.shapeDetailOffset.addScaledVector(this.shapeDetailVelocity, deltaTime)
+
+    const camera = this.camera as
+      | (Camera & { near: number; projectionMatrix: Matrix4 })
+      | undefined
+    if (camera != null) {
+      this.surfaceViewMatrix.value.copy(camera.matrixWorldInverse)
+      this.surfaceProjectionMatrix.value.copy(camera.projectionMatrix)
+      this.surfaceCameraNear.value = camera.near
+    }
 
     // CPU-side shared uniform updates:
     updateCloudLayerUniforms(this.layerUniforms, this.cloudLayers)

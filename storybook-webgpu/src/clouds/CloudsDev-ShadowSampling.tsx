@@ -48,7 +48,7 @@ import {
   readShadowOpticalDepth,
   sampleShadowOpticalDepth,
   type CloudShadowSamplingDependencies
-} from '@takram/three-clouds/webgpu'
+} from '@yong/three-clouds/webgpu'
 import type { Node } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'

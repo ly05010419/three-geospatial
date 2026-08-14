@@ -1,7 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import type { StoryFn } from '@storybook/react-vite'
 
-import { Turbulence } from '@takram/three-clouds'
+import { Turbulence } from '@yong/three-clouds'
 
 import { ProceduralTextureViewer } from './helpers/ProceduralTextureViewer'
 
