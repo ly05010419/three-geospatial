@@ -9,7 +9,7 @@ import {
   Atmosphere,
   type AtmosphereApi
 } from '@takram/three-atmosphere/r3f'
-import { CloudLayer, Clouds } from '@yong/three-clouds/r3f'
+import { CloudLayer, Clouds } from '@yong_three/three-clouds/r3f'
 import { Dithering, LensFlare } from '@takram/three-geospatial-effects/r3f'
 
 import { Stats } from '../helpers/Stats'

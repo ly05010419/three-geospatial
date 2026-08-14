@@ -11,7 +11,7 @@ import {
   Vector3
 } from 'three'
 
-import { CloudShape, CloudShapeDetail } from '@yong/three-clouds'
+import { CloudShape, CloudShapeDetail } from '@yong_three/three-clouds'
 
 import { useControls } from '../helpers/useControls'
 

@@ -18,7 +18,7 @@ import {
 } from 'three/tsl'
 import { NodeMaterial, type Renderer } from 'three/webgpu'
 
-import type { ProceduralTexture3DNode } from '@yong/three-clouds/webgpu'
+import type { ProceduralTexture3DNode } from '@yong_three/three-clouds/webgpu'
 import { FnVar, type Node } from '@takram/three-geospatial/webgpu'
 
 import type { StoryFC } from '../components/createStory'

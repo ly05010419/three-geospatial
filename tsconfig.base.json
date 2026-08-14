@@ -34,13 +34,13 @@
       "@takram/three-atmosphere/webgpu": [
         "./packages/atmosphere/src/webgpu/index.ts"
       ],
-      "@yong/three-clouds": [
+      "@yong_three/three-clouds": [
         "./packages/clouds/src/index.ts"
       ],
-      "@yong/three-clouds/r3f": [
+      "@yong_three/three-clouds/r3f": [
         "./packages/clouds/src/r3f/index.ts"
       ],
-      "@yong/three-clouds/webgpu": [
+      "@yong_three/three-clouds/webgpu": [
         "./packages/clouds/src/webgpu/index.ts"
       ],
       "@takram/three-geospatial": [

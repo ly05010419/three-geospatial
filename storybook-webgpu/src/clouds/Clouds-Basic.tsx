@@ -1,12 +1,12 @@
 import { Box, OrbitControls } from '@react-three/drei'
 import { useThree } from '@react-three/fiber'
-import type { CloudLayers } from '@yong/three-clouds'
+import type { CloudLayers } from '@yong_three/three-clouds'
 import {
   clouds,
   type CloudsMarchDebugShow,
   type CloudsQualityPreset,
   type CloudsResolveDebugShow
-} from '@yong/three-clouds/webgpu'
+} from '@yong_three/three-clouds/webgpu'
 import type { MotionValue } from 'motion/react'
 import { useLayoutEffect, useMemo, useRef, type FC } from 'react'
 import { AgXToneMapping, Euler, Vector3 } from 'three'

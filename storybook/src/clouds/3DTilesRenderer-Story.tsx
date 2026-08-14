@@ -20,8 +20,8 @@ import {
   Atmosphere,
   type AtmosphereApi
 } from '@takram/three-atmosphere/r3f'
-import type { CloudsEffect } from '@yong/three-clouds'
-import { Clouds } from '@yong/three-clouds/r3f'
+import type { CloudsEffect } from '@yong_three/three-clouds'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 import { Geodetic, PointOfView, radians } from '@takram/three-geospatial'
 import {
   Depth,

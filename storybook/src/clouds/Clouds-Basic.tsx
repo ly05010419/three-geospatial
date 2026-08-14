@@ -9,8 +9,8 @@ import {
   Atmosphere,
   type AtmosphereApi
 } from '@takram/three-atmosphere/r3f'
-import type { CloudsEffect } from '@yong/three-clouds'
-import { Clouds } from '@yong/three-clouds/r3f'
+import type { CloudsEffect } from '@yong_three/three-clouds'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 import { radians } from '@takram/three-geospatial'
 import { Dithering, LensFlare } from '@takram/three-geospatial-effects/r3f'
 import { EastNorthUpFrame } from '@takram/three-geospatial/r3f'

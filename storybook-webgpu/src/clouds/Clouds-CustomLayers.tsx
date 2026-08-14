@@ -1,4 +1,4 @@
-import { CloudLayers } from '@yong/three-clouds'
+import { CloudLayers } from '@yong_three/three-clouds'
 
 import type { StoryFC } from '../components/createStory'
 import { localDateArgs, localDateArgTypes } from '../controls/localDateControls'

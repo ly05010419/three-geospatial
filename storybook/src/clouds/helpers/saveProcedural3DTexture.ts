@@ -10,7 +10,7 @@ import {
 } from 'three'
 import invariant from 'tiny-invariant'
 
-import type { Procedural3DTexture } from '@yong/three-clouds'
+import type { Procedural3DTexture } from '@yong_three/three-clouds'
 
 export function saveProcedural3DTexture(
   proceduralTexture: Procedural3DTexture,

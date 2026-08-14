@@ -1,6 +1,6 @@
-# @yong/three-clouds
+# @yong_three/three-clouds
 
-[![npm version](https://img.shields.io/npm/v/@yong/three-clouds.svg?style=flat-square)](https://www.npmjs.com/package/@yong/three-clouds) [![Storybook](https://img.shields.io/badge/-Storybook-FF4785?style=flat-square&logo=storybook&logoColor=white)](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-clouds--basic)
+[![npm version](https://img.shields.io/npm/v/@yong_three/three-clouds.svg?style=flat-square)](https://www.npmjs.com/package/@yong_three/three-clouds) [![Storybook](https://img.shields.io/badge/-Storybook-FF4785?style=flat-square&logo=storybook&logoColor=white)](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-clouds--basic)
 
 A Three.js and R3F (React Three Fiber) implementation of geospatial volumetric clouds with features including:
 
@@ -13,13 +13,13 @@ This library is part of a project to prototype the rendering aspect of a Web GIS
 
 ## WebGPU
 
-The WebGPU implementation is available from the `@yong/three-clouds/webgpu`
+The WebGPU implementation is available from the `@yong_three/three-clouds/webgpu`
 subpath. It uses a node-based API centered on `clouds(depthNode?)` and
 `CloudsNode`, and is not a drop-in replacement for the WebGL `CloudsEffect` or
 the R3F `<Clouds>` component.
 
 ```ts
-import { clouds } from '@yong/three-clouds/webgpu'
+import { clouds } from '@yong_three/three-clouds/webgpu'
 import { WebGPURenderer } from 'three/webgpu'
 
 const renderer = new WebGPURenderer({
@@ -100,9 +100,9 @@ parameters have been locked first.
 ## Installation
 
 ```sh
-npm install @yong/three-clouds
-pnpm add @yong/three-clouds
-yarn add @yong/three-clouds
+npm install @yong_three/three-clouds
+pnpm add @yong_three/three-clouds
+yarn add @yong_three/three-clouds
 ```
 
 The WebGPU entry point currently supports Three.js `0.183.x`. TypeScript users
@@ -127,7 +127,7 @@ Place [`Clouds`](#clouds) inside [`EffectComposer`](https://github.com/pmndrs/po
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { Clouds } from '@yong/three-clouds/r3f'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 
 const Scene = () => (
   <Atmosphere>
@@ -155,7 +155,7 @@ Clouds can be customized using [`CloudLayer`](#cloudlayer).
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { Clouds } from '@yong/three-clouds/r3f'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 
 const Scene = () => (
   <Atmosphere>
@@ -186,7 +186,7 @@ Provide a path to your weather texture. This also applies to shape, shape detail
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { Clouds } from '@yong/three-clouds/r3f'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 
 const Scene = () => (
   <Atmosphere>
@@ -205,8 +205,8 @@ Pass an object that implements [`ProceduralTexture`](#proceduraltexture-procedur
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { ProceduralTextureBase } from '@yong/three-clouds'
-import { Clouds } from '@yong/three-clouds/r3f'
+import { ProceduralTextureBase } from '@yong_three/three-clouds'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 
 const localWeatherTexture = new ProceduralTextureBase({
   size: 512,
@@ -320,7 +320,7 @@ See [`CloudsEffect`](#cloudseffect) for further details.
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { Clouds } from '@yong/three-clouds/r3f'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 
 const Scene = () => (
   <Atmosphere>
@@ -402,13 +402,13 @@ If left undefined, the default texture will be loaded directly from GitHub.
 
 Represents a layer of clouds.
 
-There are two objects with the same name. One exported from `@yong/three-clouds`, and another from `@yong/three-clouds/r3f`, which is a React component that applies props into `CloudEffect`.
+There are two objects with the same name. One exported from `@yong_three/three-clouds`, and another from `@yong_three/three-clouds/r3f`, which is a React component that applies props into `CloudEffect`.
 
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { CloudLayer as CloudLayerImpl } from '@yong/three-clouds'
-import { CloudLayer, Clouds } from '@yong/three-clouds/r3f'
+import { CloudLayer as CloudLayerImpl } from '@yong_three/three-clouds'
+import { CloudLayer, Clouds } from '@yong_three/three-clouds/r3f'
 
 const Scene = () => {
   // Modify an instance of the CloudLayer class transiently if props change
