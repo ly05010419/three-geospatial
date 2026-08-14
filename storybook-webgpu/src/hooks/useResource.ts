@@ -1,29 +1,38 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 interface Resource {
   dispose?: () => void
 }
 
-export function useResource<T extends Resource[]>(
-  callback: () => T,
-  deps: readonly unknown[]
-): T
+type ManageFunction = <T extends Resource, Rest extends readonly Resource[]>(
+  resource: T,
+  ...resources: Rest
+) => Rest['length'] extends 0 ? T : [T, ...Rest]
 
-export function useResource<T extends Resource>(
-  callback: () => T,
+export function useResource<T extends Resource | Resource[]>(
+  callback: (manage: ManageFunction) => T,
   deps: readonly unknown[]
-): T
+): T {
+  const managedResourcesRef = useRef<Resource[]>([])
+  const manage = useCallback(
+    (resource: Resource, ...resources: readonly Resource[]) => {
+      managedResourcesRef.current.push(resource, ...resources)
+      return resources.length === 0 ? resource : [resource, ...resources]
+    },
+    []
+  ) as ManageFunction
 
-export function useResource<T extends Resource>(
-  callback: () => T | T[],
-  deps: readonly unknown[]
-): T | T[] {
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const resource = useMemo(() => callback(), deps)
+  const resource = useMemo(() => callback(manage), deps)
 
   useEffect(() => {
     return () => {
-      const resources = Array.isArray(resource) ? resource : [resource]
+      const resources = [
+        ...(Array.isArray(resource) ? resource : [resource]),
+        ...managedResourcesRef.current
+      ].filter((value, index, array) => array.indexOf(value) === index)
+      managedResourcesRef.current = []
+
       for (const resource of resources) {
         resource.dispose?.()
       }

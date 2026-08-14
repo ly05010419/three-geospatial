@@ -41,7 +41,8 @@ export class LensFlareNode extends TempNode {
   bloomNode: MipmapSurfaceBlurNode
   glareNode: LensGlareNode
 
-  bloomIntensity = uniform(0.05)
+  bloomIntensity = uniform(0.005)
+  glare = false
 
   featuresNode: RenderTargetNode
 
@@ -97,13 +98,12 @@ export class LensFlareNode extends TempNode {
     glareNode.inputNode = threshold
 
     const bloom = bloomNode.getTextureNode().mul(this.bloomIntensity)
-    const glare = glareNode.getTextureNode()
+    const glare = this.glare ? glareNode.getTextureNode() : null
 
     return Fn(() => {
-      // TODO: Prevent the output from becoming too bright.
       const output = inputNode
       output.addAssign(bloom)
-      if (isWebGPU(builder)) {
+      if (glare != null) {
         output.addAssign(glare)
       }
       return output.add(features)

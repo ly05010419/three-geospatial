@@ -35,6 +35,11 @@ const BACKDROP = 'BACKDROP'
 
 type AerialPerspectiveNodeScope = typeof CAMERA | typeof BACKDROP
 
+export type SunTransmittanceNodeFactory = (
+  positionECEF: Node<'vec3'>,
+  builder: NodeBuilder
+) => Node<'float'>
+
 export class AerialPerspectiveNode extends TempNode {
   static override get type(): string {
     return 'AerialPerspectiveNode'
@@ -47,6 +52,7 @@ export class AerialPerspectiveNode extends TempNode {
   shadowLengthNode: Node<'vec2'> | null
   skyNode: SkyNode | null = null
   normalNode: Node<'vec3'> | null = null
+  sunTransmittanceNode: SunTransmittanceNodeFactory | null = null
 
   cameraPositionUnit: Node<'vec3'> | null = null
   rayDirectionECEF: Node<'vec3'> | null = null
@@ -76,7 +82,8 @@ export class AerialPerspectiveNode extends TempNode {
       this.lighting,
       this.transmittance,
       this.inscattering,
-      this.moonScattering
+      this.moonScattering,
+      this.sunTransmittanceNode != null
     )
   }
 
@@ -213,8 +220,14 @@ export class AerialPerspectiveNode extends TempNode {
           normalECEF,
           sunDirectionECEF
         ).toConst()
+
+        const sunTransmittance =
+          this.sunTransmittanceNode?.(
+            positionUnit.add(altitudeCorrectionUnit).div(worldToUnit),
+            builder
+          ) ?? 1
         let illuminance = add(
-          solarIlluminance.get('direct'),
+          solarIlluminance.get('direct').mul(sunTransmittance),
           solarIlluminance.get('indirect')
         )
         if (this.moonScattering) {

@@ -52,7 +52,7 @@ const textureUVW = FnVar((textureSize: Node<'vec3'>, zoom: Node<'float'>) => {
   If(index.greaterThanEqual(textureSize.z), () => {
     Discard()
   })
-  return vec3(uv.fract(), index.toFloat().add(0.5).div(textureSize.z))
+  return vec3(uv.fract(), index.toFloat().div(textureSize.z))
 })
 
 const Content: FC<StoryProps> = ({

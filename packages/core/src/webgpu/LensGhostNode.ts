@@ -11,7 +11,7 @@ export class LensGhostNode extends TempNode {
 
   inputNode: TextureNode | null
 
-  intensity = uniform(1e-5)
+  intensity = uniform(5e-6)
 
   constructor(inputNode: TextureNode | null = null) {
     super('vec3')

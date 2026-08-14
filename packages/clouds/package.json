@@ -1,6 +1,6 @@
 {
-  "name": "@takram/three-clouds",
-  "version": "0.7.6",
+  "name": "@yong_three/three-clouds",
+  "version": "0.1.0",
   "description": "A Three.js and R3F implementation of geospatial volumetric clouds",
   "keywords": [
     "three",
@@ -9,13 +9,14 @@
     "volumetric",
     "clouds"
   ],
-  "homepage": "https://github.com/takram-design-engineering/three-geospatial/tree/main/packages/clouds",
+  "homepage": "https://github.com/ly05010419/three-geospatial/tree/main/packages/clouds",
   "bugs": {
-    "url": "https://github.com/takram-design-engineering/three-geospatial/issues"
+    "url": "https://github.com/ly05010419/three-geospatial/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/takram-design-engineering/three-geospatial.git"
+    "url": "git+https://github.com/ly05010419/three-geospatial.git",
+    "directory": "packages/clouds"
   },
   "license": "MIT",
   "author": "Shota Matsuda <shota@takram.com>",
@@ -30,6 +31,11 @@
       "types": "./types/r3f/index.d.ts",
       "import": "./build/r3f.js",
       "require": "./build/r3f.cjs"
+    },
+    "./webgpu": {
+      "types": "./types/webgpu/index.d.ts",
+      "import": "./build/webgpu.js",
+      "require": "./build/webgpu.cjs"
     }
   },
   "main": "./build/index.cjs",
@@ -42,7 +48,8 @@
     "types",
     "package.json",
     "CHANGELOG.md",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@takram/three-atmosphere": "0.19.1",
@@ -55,7 +62,7 @@
     "@react-three/postprocessing": ">=3.0.4",
     "postprocessing": ">=6.36.7",
     "react": ">=19.0",
-    "three": ">=0.170.0"
+    "three": ">=0.184.0 <0.185.0"
   },
   "peerDependenciesMeta": {
     "@react-three/drei": {

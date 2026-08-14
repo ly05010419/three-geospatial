@@ -19,8 +19,8 @@ import {
   SunLight,
   type AtmosphereApi
 } from '@takram/three-atmosphere/r3f'
-import type { CloudsEffect } from '@takram/three-clouds'
-import { Clouds } from '@takram/three-clouds/r3f'
+import type { CloudsEffect } from '@yong_three/three-clouds'
+import { Clouds } from '@yong_three/three-clouds/r3f'
 import { Ellipsoid, Geodetic, radians } from '@takram/three-geospatial'
 import { Dithering, LensFlare } from '@takram/three-geospatial-effects/r3f'
 

@@ -39,7 +39,7 @@ import {
   CLOUD_SHAPE_TEXTURE_SIZE,
   CloudsEffect,
   type CloudsEffectChangeEvent
-} from '@takram/three-clouds'
+} from '@yong_three/three-clouds'
 import {
   DataTextureLoader,
   Ellipsoid,

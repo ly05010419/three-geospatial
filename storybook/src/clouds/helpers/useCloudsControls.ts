@@ -11,8 +11,8 @@ import {
   type CloudsQualityPreset,
   type DensityProfileLike,
   type FrustumSplitMode
-} from '@takram/three-clouds'
-import type { CloudsProps } from '@takram/three-clouds/r3f'
+} from '@yong_three/three-clouds'
+import type { CloudsProps } from '@yong_three/three-clouds/r3f'
 
 import { useControls } from '../../helpers/useControls'
 

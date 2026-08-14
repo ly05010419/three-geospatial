@@ -31,7 +31,7 @@ export class LensHaloNode extends TempNode {
 
   inputNode: TextureNode | null
 
-  intensity = uniform(1e-5)
+  intensity = uniform(5e-6)
   chromaticAberration = uniform(0.005)
 
   private readonly aspectRatio = uniform(0)

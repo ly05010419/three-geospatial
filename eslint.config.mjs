@@ -89,6 +89,7 @@ export default defineConfig(
       'no-negated-condition': 'off',
       'no-plusplus': 'off',
       'no-multi-assign': 'off',
+      'max-nested-callbacks': 'off',
       'prefer-named-capture-group': 'off',
       'no-await-in-loop': 'off',
       'require-unicode-regexp': 'off',

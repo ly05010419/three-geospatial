@@ -54,6 +54,10 @@ export class AtmosphereContext extends AtmosphereContextBase {
     .setGroup(renderGroup)
     .setName('matrixECEFToWorld')
     .onRenderUpdate((_, { value }) => {
+      // matrixWorldToECEF is a rigid transform, not just a rotation: local
+      // reference frames also contain the ECEF origin in their translation.
+      // Invert the complete affine transform so point transforms, temporal
+      // reprojection and cloud-shadow sampling retain the correct origin.
       value.copy(this.matrixWorldToECEF.value).invert()
     })
 

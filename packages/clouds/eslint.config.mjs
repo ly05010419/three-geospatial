@@ -10,7 +10,9 @@ export default defineConfig(
       '@nx/dependency-checks': [
         'error',
         {
-          ignoredFiles: ['**/eslint.config.mjs', '**/vite.config.ts']
+          ignoredFiles: ['**/eslint.config.mjs', '**/vite.config.ts'],
+          // Nx does not count type-only imports or optional peer entry points.
+          ignoredDependencies: ['@types/react', 'react', 'type-fest']
         }
       ]
     },

@@ -12,7 +12,7 @@ This project originally started as a prototype focused on the rendering aspect o
 | Name | Description | Status | NPM |
 | -- | -- | -- | -- |
 | [atmosphere](packages/atmosphere) | An implementation of Precomputed Atmospheric Scattering | Beta | [@takram/three-atmosphere](https://www.npmjs.com/package/@takram/three-atmosphere) |
-| [clouds](packages/clouds) | Geospatial volumetric clouds | Beta | [@takram/three-clouds](https://www.npmjs.com/package/@takram/three-clouds) |
+| [clouds](packages/clouds) | Geospatial volumetric clouds | Beta | [@yong_three/three-clouds](https://www.npmjs.com/package/@yong_three/three-clouds) |
 | [core](packages/core) | Provides fundamental functions for rendering GIS data | Alpha | [@takram/three-geospatial](https://www.npmjs.com/package/@takram/three-geospatial) |
 | [effects](packages/effects) | A collection of post-processing effects | Alpha | [@takram/three-geospatial-effects](https://www.npmjs.com/package/@takram/three-geospatial-effects) |
 

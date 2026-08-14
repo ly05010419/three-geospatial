@@ -1,7 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import type { StoryFn } from '@storybook/react-vite'
 
-import { LocalWeather } from '@takram/three-clouds'
+import { LocalWeather } from '@yong_three/three-clouds'
 
 import { ProceduralTextureViewer } from './helpers/ProceduralTextureViewer'
 

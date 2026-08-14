@@ -56,6 +56,7 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
   renderer: { onInit, ...otherProps } = {},
   children,
   onClick,
+  style,
   ...canvasProps
 }) => {
   const available = useAtomValue(availableAtom)
@@ -89,6 +90,11 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
         key={forceWebGL ? 'webgl' : 'webgpu'}
         frameloop={frameloop}
         {...canvasProps}
+        style={{
+          width: '100%',
+          height: '100%',
+          ...style
+        }}
         gl={async props => {
           const renderer = new WebGPURenderer({
             ...(props as any),

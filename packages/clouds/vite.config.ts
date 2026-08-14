@@ -5,8 +5,60 @@ import { nxCopyAssetsPlugin } from '@nx/vite/plugins/nx-copy-assets.plugin'
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin'
 import replace from '@rollup/plugin-replace'
 import react from '@vitejs/plugin-react'
+import ts from 'typescript'
 import { defineConfig } from 'vite'
 import dts from 'vite-plugin-dts'
+
+const addJsExtensionsToDeclarationImports = (
+  filePath: string,
+  content: string
+): { content: string } | undefined => {
+  if (!filePath.endsWith('.d.ts')) {
+    return
+  }
+
+  const sourceFile = ts.createSourceFile(
+    filePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS
+  )
+  const insertions: number[] = []
+
+  const collectModuleSpecifier = (
+    specifier: ts.Expression | undefined
+  ): void => {
+    if (specifier == null || !ts.isStringLiteralLike(specifier)) {
+      return
+    }
+    const moduleName = specifier.text
+    if (
+      (moduleName.startsWith('./') || moduleName.startsWith('../')) &&
+      path.posix.extname(moduleName) === ''
+    ) {
+      insertions.push(specifier.getEnd() - 1)
+    }
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      collectModuleSpecifier(node.moduleSpecifier)
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument)
+    ) {
+      collectModuleSpecifier(node.argument.literal)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  for (const position of insertions.sort((a, b) => b - a)) {
+    content = `${content.slice(0, position)}.js${content.slice(position)}`
+  }
+  return { content }
+}
 
 export default defineConfig({
   root: __dirname,
@@ -14,12 +66,23 @@ export default defineConfig({
   plugins: [
     react(),
     nxViteTsPaths(),
-    nxCopyAssetsPlugin(['assets/**/*', 'src/**/*', '*.md']),
+    nxCopyAssetsPlugin([
+      'assets/**/*',
+      {
+        input: '.',
+        output: '.',
+        glob: 'src/**/*',
+        ignore: ['src/**/*.test.*', 'src/**/*.spec.*']
+      },
+      '*.md',
+      'LICENSE'
+    ]),
     dts({
       outDir: '../../dist/packages/clouds/types',
       entryRoot: 'src',
       tsconfigPath: path.join(__dirname, 'tsconfig.lib.json'),
       pathsToAliases: false,
+      beforeWriteFile: addJsExtensionsToDeclarationImports,
       afterDiagnostic: diagnostics => {
         diagnostics.forEach(diagnostic => {
           console.warn(diagnostic)
@@ -46,7 +109,8 @@ export default defineConfig({
       // Could also be a dictionary or array of multiple entry points.
       entry: {
         'build/index': 'src/index.ts',
-        'build/r3f': 'src/r3f/index.ts'
+        'build/r3f': 'src/r3f/index.ts',
+        'build/webgpu': 'src/webgpu/index.ts'
       },
       name: 'clouds'
     },
