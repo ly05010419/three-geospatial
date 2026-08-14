@@ -1,22 +1,68 @@
 # @yong_three/three-clouds
 
-[![npm version](https://img.shields.io/npm/v/@yong_three/three-clouds.svg?style=flat-square)](https://www.npmjs.com/package/@yong_three/three-clouds) [![Storybook](https://img.shields.io/badge/-Storybook-FF4785?style=flat-square&logo=storybook&logoColor=white)](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-clouds--basic)
+[![npm version](https://img.shields.io/npm/v/@yong_three/three-clouds.svg?style=flat-square)](https://www.npmjs.com/package/@yong_three/three-clouds)
+[![repository](https://img.shields.io/badge/GitHub-source-181717?style=flat-square&logo=github)](https://github.com/ly05010419/three-geospatial/tree/main/packages/clouds)
 
-A Three.js and R3F (React Three Fiber) implementation of geospatial volumetric clouds with features including:
+A fork of Takram's geospatial volumetric-cloud library with a new Three.js
+WebGPU node implementation. The package provides:
 
-- Beer shadow maps (BSM) and shadows cast on scene objects
-- Temporal upscaling and filtering
-- Light shafts (crepuscular rays)
-- Haze (sparse fog)
+- a WebGPU node API with cloud animation, custom layers, beer shadow maps
+  (BSM), temporal upscaling, light shafts, and haze, plus fork-workspace
+  integration for scene-surface shadows;
+- the original WebGL `CloudsEffect` API; and
+- the original WebGL R3F `<Clouds>` component.
 
-This library is part of a project to prototype the rendering aspect of a Web GIS engine. For more details on the background and current status of this project, please refer to the [main README](/README.md).
+This is the WebGPU clouds fork published by `yong_three`; it is not an
+official Takram release. The original implementation and project history are
+available at
+[`takram-design-engineering/three-geospatial`](https://github.com/takram-design-engineering/three-geospatial).
+
+## Entry points
+
+| Import                            | Renderer                                            | API                                                           |
+| --------------------------------- | --------------------------------------------------- | ------------------------------------------------------------- |
+| `@yong_three/three-clouds/webgpu` | WebGPU, or WebGL2 fallback through `WebGPURenderer` | `clouds()`, `CloudsNode`, procedural nodes and shadow helpers |
+| `@yong_three/three-clouds`        | WebGL                                               | `CloudsEffect`, `CloudLayer`, texture helpers                 |
+| `@yong_three/three-clouds/r3f`    | WebGL + React Three Fiber                           | `<Clouds>`, `<CloudLayer>`                                    |
+
+Do not import the R3F `<Clouds>` component for the WebGPU path. A WebGPU R3F
+wrapper is not currently exported; the WebGPU Storybook integrates
+`CloudsNode` into R3F manually.
+
+## Installation
+
+The published `0.1.0` release targets Three.js `0.183.x`:
+
+```sh
+npm install @yong_three/three-clouds@0.1.0 three@0.183 postprocessing
+npm install --save-dev @types/three@0.182
+```
+
+The current `main` branch is the next-release code and targets Three.js
+`0.184.x`. This monorepo still uses `@types/three@0.182.x` together with local
+type augmentations in `types/three.d.ts`; those augmentations are required when
+developing the WebGPU source from `main`.
+
+> **Dependency note:** the complete Basic and Custom Layers reference scenes
+> also use atmosphere/core changes from this fork, including the affine ECEF
+> transform fix and the aerial-perspective surface-shadow hook. Those changes
+> are not part of the upstream `@takram/three-atmosphere@0.19.1` npm package.
+> For exact visual parity and scene-surface shadows, use this monorepo until
+> companion fork packages are published. The standalone clouds node API is
+> still available from `@yong_three/three-clouds`.
+
+React dependencies are only required for the WebGL R3F entry point:
+
+```sh
+npm install react @react-three/fiber @react-three/drei \
+  @react-three/postprocessing
+```
 
 ## WebGPU
 
-The WebGPU implementation is available from the `@yong_three/three-clouds/webgpu`
-subpath. It uses a node-based API centered on `clouds(depthNode?)` and
-`CloudsNode`, and is not a drop-in replacement for the WebGL `CloudsEffect` or
-the R3F `<Clouds>` component.
+Import WebGPU clouds from `@yong_three/three-clouds/webgpu`. The API is
+centered on `clouds(depthNode?)` and `CloudsNode`; it is not a drop-in
+replacement for the WebGL post-processing effect.
 
 ```ts
 import { clouds } from '@yong_three/three-clouds/webgpu'
@@ -30,13 +76,24 @@ const renderer = new WebGPURenderer({
 await renderer.init()
 
 const cloudsNode = await clouds(depthNode).loadDefaultTexturesAsync()
+cloudsNode.coverage = 0.3
+cloudsNode.qualityPreset = 'high'
+cloudsNode.localWeatherVelocity.set(0.001, 0)
 ```
 
-The renderer must request at least 32 sampled textures per shader stage. Check
-the adapter limit before creating the renderer when targeting devices that may
-not support this limit. `loadDefaultTexturesAsync()` rejects when a hosted
-asset cannot be loaded; `loadDefaultTextures()` remains available when loading
-does not need to block initialization.
+This fragment only shows construction and configuration. `CloudsNode` also
+requires an `AtmosphereContext`, a scene color/depth pass, compositing, and a
+`RenderPipeline`. Use the complete
+[`Clouds-Vanilla.tsx`](https://github.com/ly05010419/three-geospatial/blob/main/storybook-webgpu/src/clouds/Clouds-Vanilla.tsx)
+example for a standalone Three.js setup, or
+[`Clouds-Basic.tsx`](https://github.com/ly05010419/three-geospatial/blob/main/storybook-webgpu/src/clouds/Clouds-Basic.tsx)
+for the R3F integration used by Storybook.
+
+The renderer must request at least 32 sampled textures per shader stage.
+Check the adapter limit before creating the renderer on devices that might not
+support it. `loadDefaultTexturesAsync()` waits for all hosted assets and
+rejects on a loading error; `loadDefaultTextures()` starts loading immediately
+and returns the node synchronously.
 
 The WebGPU implementation currently includes:
 
@@ -50,16 +107,20 @@ The WebGPU implementation currently includes:
   detail, and turbulence; their internal GPU programs rebuild automatically
 - Debug views for march UVs, sample count, front depth, shadow length, and
   resolve velocity
+- Custom cloud layers through `CloudLayers` and `setCloudLayers()`
+- Cloud movement through `localWeatherVelocity`, `shapeVelocity`, and
+  `shapeDetailVelocity`
+- Cloud shadows on scene geometry through
+  `getSunTransmittanceNode()` and `AerialPerspectiveNode.sunTransmittanceNode`
 - A vanilla Three.js WebGPU path without R3F scene helpers
 
-The WebGPU API is not yet fully 1:1 with WebGL:
+Current WebGPU limitations:
 
 - A WebGPU R3F `<Clouds>` wrapper is not provided
 - `CloudsNode` does not mirror every `CloudsEffect` getter and setter;
   advanced parameters are exposed through `parameterUniforms`, `marchNode`,
   `shadowNode`, and `resolveNode`
-- Custom layer, 3D Tiles, and world-origin rebasing stories are not ported
-- The WebGPU Basic story exposes fewer controls than the WebGL Leva panel
+- 3D Tiles and world-origin-rebasing stories are not yet ported
 - Procedural texture nodes are supported, but the validated parity path uses
   the hosted default texture assets
 
@@ -67,7 +128,71 @@ The WebGPU package still depends on `@takram/three-geospatial` and
 `@takram/three-atmosphere`. It can be used without React or R3F, but it is not
 currently independent of the geospatial and atmosphere packages.
 
-See the [WebGPU Storybook](https://takram-design-engineering.github.io/three-geospatial-webgpu).
+### WebGPU Storybook
+
+The public Takram Storybook is the upstream project and does not host this
+fork's WebGPU clouds stories. Run this repository locally:
+
+```sh
+pnpm install
+pnpm nx storybook storybook-webgpu --port=4004 --no-open
+```
+
+Open these pages:
+
+- [Basic](http://localhost:4004/?path=/story/clouds-clouds--basic)
+- [Custom Layers](http://localhost:4004/?path=/story/clouds-clouds--custom-layers)
+- [Vanilla](http://localhost:4004/?path=/story/clouds-clouds--vanilla)
+
+### Custom layers
+
+WebGPU custom layers use the shared `CloudLayers` model and are applied to the
+node with `setCloudLayers()`:
+
+```ts
+import { CloudLayers } from '@yong_three/three-clouds'
+import { clouds } from '@yong_three/three-clouds/webgpu'
+
+const cloudLayers = new CloudLayers([
+  {
+    channel: 'r',
+    altitude: 1000,
+    height: 1000,
+    shapeAmount: 0.8,
+    weatherExponent: 0.6,
+    shadow: true
+  },
+  {
+    channel: 'g',
+    altitude: 2000,
+    height: 800,
+    densityScale: 0.1
+  }
+])
+
+const cloudsNode = clouds(depthNode).loadDefaultTextures()
+cloudsNode.setCloudLayers(cloudLayers)
+```
+
+See the complete
+[`Clouds-CustomLayers.tsx`](https://github.com/ly05010419/three-geospatial/blob/main/storybook-webgpu/src/clouds/Clouds-CustomLayers.tsx)
+story for the four-layer configuration and local ECEF frame.
+
+### Scene-surface shadows
+
+The cloud node exposes optical transmittance for lighting scene geometry. In
+this fork's atmosphere implementation it is connected as follows:
+
+```ts
+aerialNode.sunTransmittanceNode = (positionECEF, builder) =>
+  cloudsNode.getSunTransmittanceNode(positionECEF, builder)
+
+postProcessing.needsUpdate = true
+```
+
+This is separate from the cloud self-shadow and light-shaft path. The scene
+pass must include normals, and changing the callback requires rebuilding the
+render pipeline.
 
 ### WebGL parity target
 
@@ -97,28 +222,10 @@ or light-shaft direction should be treated as bugs. Do not use the interactive
 WebGL Basic story for direct RMSE comparisons unless its controls and frozen
 parameters have been locked first.
 
-## Installation
+## WebGL / R3F usage
 
-```sh
-npm install @yong_three/three-clouds
-pnpm add @yong_three/three-clouds
-yarn add @yong_three/three-clouds
-```
-
-The WebGPU entry point currently supports Three.js `0.183.x`. TypeScript users
-should install `@types/three@0.182.x`; the `0.183.x` type definitions are not
-compatible with the WebGPU node API used by this release. The declarations are
-validated with `moduleResolution: "Bundler"`. Projects using `NodeNext` may need
-`skipLibCheck: true` until the Takram dependency declarations support NodeNext.
-
-Peer dependencies include `three` and `postprocessing`, as well as `@react-three/fiber`, `@react-three/postprocessing` and `@react-three/drei` (required by `@takram/three-atmosphere`) when using R3F.
-
-```
-three postprocessing
-@react-three/fiber @react-three/postprocessing @react-three/drei
-```
-
-## Usage
+The remainder of this document describes the original WebGL and R3F API. It
+does not apply to imports from `@yong_three/three-clouds/webgpu`.
 
 ### Default clouds
 
@@ -140,13 +247,13 @@ const Scene = () => (
 ```
 
 ![Example of Tokyo](https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/main/packages/clouds/docs/tokyo.jpg)
-→ [Storybook](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--tokyo)
+→ [Upstream WebGL Storybook](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--tokyo)
 
 ![Example of Fuji](https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/main/packages/clouds/docs/fuji.jpg)
-→ [Storybook](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--fuji)
+→ [Upstream WebGL Storybook](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--fuji)
 
 ![Example of London](https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/main/packages/clouds/docs/london.jpg)
-→ [Storybook](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--london)
+→ [Upstream WebGL Storybook](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--london)
 
 ### Configuring cloud layers
 
@@ -155,7 +262,7 @@ Clouds can be customized using [`CloudLayer`](#cloudlayer).
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
 import { AerialPerspective, Atmosphere } from '@takram/three-atmosphere/r3f'
-import { Clouds } from '@yong_three/three-clouds/r3f'
+import { CloudLayer, Clouds } from '@yong_three/three-clouds/r3f'
 
 const Scene = () => (
   <Atmosphere>
@@ -242,7 +349,9 @@ There are 4 quality presets that you may consider:
 
 If "Low" quality preset still does not meet your performance goal, then I recommend considering a skybox instead, which might offer better visual quality unless you specifically need volumetric clouds.
 
-Below are my measurements as of version 0.0.1 on the [Tokyo scene](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--tokyo). Note that they are relatively new devices as of this writing.
+The following are Takram's upstream WebGL measurements from version 0.0.1 on
+the [Tokyo scene](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-3d-tiles-renderer-integration--tokyo).
+They are historical reference numbers, not WebGPU benchmarks for this fork.
 
 | Device                | FPS       | Quality preset | Temporal upscaling | Canvas resolution | Browser |
 | --------------------- | --------- | -------------- | ------------------ | ----------------- | ------- |
@@ -299,7 +408,7 @@ This illustrates that greater total cloud layer height increases computational c
 
 - Introduce global cloud coverage and support rendering views from space.
 
-# API
+# WebGL API reference
 
 **R3F components**
 
@@ -402,7 +511,10 @@ If left undefined, the default texture will be loaded directly from GitHub.
 
 Represents a layer of clouds.
 
-There are two objects with the same name. One exported from `@yong_three/three-clouds`, and another from `@yong_three/three-clouds/r3f`, which is a React component that applies props into `CloudEffect`.
+There are two objects with the same name. One is exported from
+`@yong_three/three-clouds`; the other is exported from
+`@yong_three/three-clouds/r3f` and is a React component that applies props to
+`CloudsEffect`.
 
 ```tsx
 import { EffectComposer } from '@react-three/postprocessing'
@@ -611,7 +723,7 @@ Nothing novel here, just a combination of existing techniques. See the [referenc
 
 ### Parameters
 
-The number of parameters might seem overwhelming at first, but they provide fine control as needed. To get started, try adjusting [`qualityPreset`](#qualitypreset), [`coverage`](#coverage), cloud layer's [`altitude`](#altitude), and [`height`](#height) to suit your needs. You can also experiment with the parameters in the [Basic story](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-clouds--basic).
+The number of parameters might seem overwhelming at first, but they provide fine control as needed. To get started, try adjusting [`qualityPreset`](#qualitypreset), [`coverage`](#coverage), cloud layer's [`altitude`](#altitude), and [`height`](#height) to suit your needs. You can also experiment with the parameters in the [upstream WebGL Basic story](https://takram-design-engineering.github.io/three-geospatial/?path=/story/clouds-clouds--basic).
 
 - [Rendering](#rendering)
 - [Cloud layers](#cloud-layers)
