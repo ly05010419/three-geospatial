@@ -23,6 +23,21 @@ export const Stats: FC = () => {
       .init(renderer)
       .then(() => {
         removeAfterEffect = addAfterEffect(() => {
+          // Some WebGPU implementations can return a wrapped/non-monotonic
+          // render timestamp while the query buffer is being resolved. Never
+          // expose that as a negative or multi-second GPU time in the panel.
+          const renderInfo = renderer.info?.render as typeof renderer.info.render & {
+            timestamp?: number
+          }
+          const renderTimestamp = renderInfo?.timestamp
+          if (
+            typeof renderTimestamp === 'number' &&
+            (!Number.isFinite(renderTimestamp) ||
+              renderTimestamp < 0 ||
+              renderTimestamp > 1000)
+          ) {
+            renderInfo.timestamp = 0
+          }
           stats.update()
         })
       })
