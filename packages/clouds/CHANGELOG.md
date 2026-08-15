@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Documentation
+
+- Documented that `reversed-z` requires the original, uninverted depth input;
+  hosts must not apply `oneMinus()` before passing the depth node to clouds.
+
 ## [0.1.3] - 2026-08-15
 
 ### Fixed

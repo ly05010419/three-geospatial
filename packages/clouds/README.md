@@ -164,9 +164,31 @@ const cloudLayer = clouds(depthNode, {
 ```
 
 `depth.mode` selects the scene-depth comparison (`conventional` or
-`reversed-z`). `ellipsoid` is used for camera geodetic height instead of
+`reversed-z`). When using `reversed-z`, pass the **original depth texture/node**
+from the render pass. Do not call `oneMinus()` (or otherwise invert the depth)
+in the host application: the clouds node applies the reversed-Z comparison
+itself. Inverting the input first reverses the convention twice and produces
+incorrect scene intersections. `ellipsoid` is used for camera geodetic height instead of
 implicitly using WGS84. `curvature` is carried as node configuration for
 planet-scale integrations and keeps the reference and game radii explicit.
+
+Correct:
+
+```ts
+const cloudLayer = clouds(originalDepthNode, {
+  depth: { mode: 'reversed-z' }
+})
+```
+
+Incorrect:
+
+```ts
+// Do not invert depth before passing it to the package.
+const cloudLayer = clouds(oneMinus(originalDepthNode), {
+  depth: { mode: 'reversed-z' }
+})
+```
+
 When both `referenceFrame` and `planetFrame` are supplied, their east/north/up
 bases are converted to a GPU matrix and applied to cloud and shadow shape
 sampling.
