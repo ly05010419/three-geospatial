@@ -115,7 +115,7 @@ const PerformancePanel: FC<{ renderer: any }> = ({ renderer }) => {
     const panel = panelRef.current
     if (!panel) return
     const cells: Array<[string, string]> = [
-      ['三角形数', formatCount(metrics.triangles)],
+      ['绘制三角形', formatCount(metrics.triangles)],
       ['近岸状态', `${formatCount(metrics.textures)} 纹理`],
       ['模拟', `${metrics.computeCalls} 个计算步`],
       ['场景捕获', `${metrics.renderCalls} 次共享`],
