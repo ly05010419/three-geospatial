@@ -98,7 +98,7 @@ const PerformancePanel: FC<{ renderer: any }> = ({ renderer }) => {
       gpuCompute: computeSamples.current.length ? computeSamples.current.at(-1) ?? null : null,
       gpuRender: renderSamples.current.length ? renderSamples.current.at(-1) ?? null : null
     })
-  })
+  }, 2)
 
   useEffect(() => {
     const panel = document.createElement('div')
