@@ -1,9 +1,6 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useRef, useState, type FC } from 'react'
-import { Html } from '@react-three/drei'
+import { useEffect, useRef, useState, type FC } from 'react'
 
-import type { RendererArgs } from '../controls/rendererControls'
-import { useControl } from '../hooks/useControl'
 
 type Metrics = {
   triangles: number
@@ -46,15 +43,9 @@ const percentile = (values: number[], fraction: number): number => {
 const formatCount = (value: number): string =>
   new Intl.NumberFormat('zh-CN').format(Math.max(0, Math.round(value)))
 
-const MetricCell: FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div style={{ padding: '10px 12px', background: 'rgba(5, 31, 37, 0.76)', borderRight: '1px solid rgba(198, 232, 220, 0.22)', borderBottom: '1px solid rgba(198, 232, 220, 0.22)' }}>
-    <div style={{ color: 'rgba(219, 237, 222, 0.55)', fontSize: 10, letterSpacing: '0.06em' }}>{label}</div>
-    <div style={{ color: '#edf3db', fontSize: 13, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{value}</div>
-  </div>
-)
-
-const PerformancePanel: FC<{ renderer: any; show: boolean }> = ({ renderer, show }) => {
+const PerformancePanel: FC<{ renderer: any }> = ({ renderer }) => {
   const [metrics, setMetrics] = useState(EMPTY_METRICS)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const lastFrame = useRef(0)
   const lastUpdate = useRef(0)
   const samples = useRef<number[]>([])
@@ -62,7 +53,6 @@ const PerformancePanel: FC<{ renderer: any; show: boolean }> = ({ renderer, show
   const renderSamples = useRef<number[]>([])
 
   useFrame(() => {
-    if (!show) return
     const now = performance.now()
     if (lastFrame.current > 0) {
       const frameMs = now - lastFrame.current
@@ -110,33 +100,41 @@ const PerformancePanel: FC<{ renderer: any; show: boolean }> = ({ renderer, show
     })
   })
 
-  if (!show) return null
-  const cellStyle = { borderRight: '1px solid rgba(198, 232, 220, 0.22)', borderBottom: '1px solid rgba(198, 232, 220, 0.22)' }
-  return (
-    <Html fullscreen style={{ pointerEvents: 'none' }}>
-      <div style={{ position: 'fixed', top: 18, right: 18, width: 348, zIndex: 10000, overflow: 'hidden', border: '1px solid rgba(198, 232, 220, 0.45)', borderRadius: 14, background: 'rgba(5, 31, 37, 0.9)', color: '#edf3db', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-        <MetricCell label="三角形数" value={formatCount(metrics.triangles)} />
-        <MetricCell label="近岸状态" value={`${formatCount(metrics.textures)} 纹理`} />
-        <MetricCell label="模拟" value={`${metrics.computeCalls} 个计算步`} />
-        <MetricCell label="场景捕获" value={`${metrics.renderCalls} 次共享`} />
-        <MetricCell label="扰动数" value="0" />
-        <MetricCell label="帧率 / 平均" value={`${metrics.fps.toFixed(0)} · ${metrics.mean.toFixed(2)}ms`} />
-        <MetricCell label="P95 / P99" value={`${metrics.p95.toFixed(2)} · ${metrics.p99.toFixed(2)}ms`} />
-        <MetricCell label="最大 / 卡顿" value={`${metrics.max.toFixed(2)} · ${metrics.hitches}`} />
-        <MetricCell label="JS 提交" value={`${metrics.submit.toFixed(3)}ms`} />
-        <MetricCell label="GPU 模拟" value={metrics.gpuCompute == null ? '—' : `${metrics.gpuCompute.toFixed(3)}ms`} />
-        <div style={{ ...cellStyle, borderBottom: 0 }}><div style={{ color: 'rgba(219, 237, 222, 0.55)', fontSize: 10 }}>GPU 渲染</div><div style={{ color: '#edf3db', fontSize: 13, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{metrics.gpuRender == null ? '—' : `${metrics.gpuRender.toFixed(2)}ms`}</div></div>
-        <div style={{ background: 'rgba(80, 151, 156, 0.45)' }} />
-      </div>
-      </div>
-    </Html>
-  )
+  useEffect(() => {
+    const panel = document.createElement('div')
+    panel.style.cssText = 'position:fixed;top:18px;right:18px;width:348px;z-index:10000;overflow:hidden;border:1px solid rgba(198,232,220,.45);border-radius:14px;background:rgba(5,31,37,.9);color:#edf3db;box-shadow:0 10px 28px rgba(0,0,0,.22);pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace'
+    panelRef.current = panel
+    document.body.appendChild(panel)
+    return () => {
+      panel.remove()
+      panelRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const panel = panelRef.current
+    if (!panel) return
+    const cells: Array<[string, string]> = [
+      ['三角形数', formatCount(metrics.triangles)],
+      ['近岸状态', `${formatCount(metrics.textures)} 纹理`],
+      ['模拟', `${metrics.computeCalls} 个计算步`],
+      ['场景捕获', `${metrics.renderCalls} 次共享`],
+      ['扰动数', '0'],
+      ['帧率 / 平均', `${metrics.fps.toFixed(0)} · ${metrics.mean.toFixed(2)}ms`],
+      ['P95 / P99', `${metrics.p95.toFixed(2)} · ${metrics.p99.toFixed(2)}ms`],
+      ['最大 / 卡顿', `${metrics.max.toFixed(2)} · ${metrics.hitches}`],
+      ['JS 提交', `${metrics.submit.toFixed(3)}ms`],
+      ['GPU 模拟', metrics.gpuCompute == null ? '—' : `${metrics.gpuCompute.toFixed(3)}ms`],
+      ['GPU 渲染', metrics.gpuRender == null ? '—' : `${metrics.gpuRender.toFixed(2)}ms`]
+    ]
+    panel.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr))">${cells.map(([label, value]) => `<div style="padding:10px 12px;background:rgba(5,31,37,.76);border-right:1px solid rgba(198,232,220,.22);border-bottom:1px solid rgba(198,232,220,.22)"><div style="color:rgba(219,237,222,.55);font-size:10px;letter-spacing:.06em">${label}</div><div style="color:#edf3db;font-size:13px;margin-top:2px;font-variant-numeric:tabular-nums">${value}</div></div>`).join('')}<div style="background:rgba(80,151,156,.45)"></div></div>`
+  }, [metrics])
+
+  return null
 }
 
 export const Stats: FC = () => {
-  const show = useControl(({ showStats }: RendererArgs) => showStats)
   const renderer = useThree(({ gl }) => gl)
 
-  return <PerformancePanel renderer={renderer} show={show} />
+  return <PerformancePanel renderer={renderer} />
 }
