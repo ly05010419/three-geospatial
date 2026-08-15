@@ -99,7 +99,12 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
           const renderer = new WebGPURenderer({
             ...(props as any),
             ...otherProps,
-            forceWebGL
+            forceWebGL,
+            // Stats-gl can only report GPU/CPT timings when Three creates its
+            // timestamp query pool during renderer initialization. Enabling
+            // this before init is required; setting backend.trackTimestamp
+            // afterward is too late for the pool to exist.
+            trackTimestamp: otherProps.trackTimestamp ?? true
           })
           ref.current = renderer
           await renderer.init()

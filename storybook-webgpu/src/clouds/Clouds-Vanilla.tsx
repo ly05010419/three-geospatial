@@ -1,4 +1,5 @@
-import { AgXToneMapping, PerspectiveCamera, Scene, Vector3 } from 'three'
+import { AgXToneMapping, Euler, PerspectiveCamera, Scene, Vector3 } from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { WebGPURendererParameters } from 'three/src/renderers/webgpu/WebGPURenderer.js'
 import { context, pass, toneMapping, uniform, vec4 } from 'three/tsl'
 import * as ThreeWebGPU from 'three/webgpu'
@@ -34,6 +35,9 @@ const CAMERA_POSITION = new Vector3(
 const CAMERA_ROTATION: [number, number, number] = [
   0.6423512931563148, -0.2928348796035058, -0.8344824769956042
 ]
+const CAMERA_TARGET = new Vector3(...CAMERA_POSITION)
+  .add(new Vector3(0, 0, -1000).applyEuler(new Euler(...CAMERA_ROTATION)))
+const CAMERA_UP = new Vector3(0, 1, 0).applyEuler(new Euler(...CAMERA_ROTATION))
 const REFERENCE_DATE = Date.parse('2025-01-01T07:00:00Z')
 
 async function init(container: HTMLDivElement): Promise<() => void> {
@@ -58,7 +62,17 @@ async function init(container: HTMLDivElement): Promise<() => void> {
   )
   camera.position.copy(CAMERA_POSITION)
   camera.rotation.fromArray(CAMERA_ROTATION)
+  camera.up.copy(CAMERA_UP)
   camera.updateMatrixWorld()
+
+  // Match the React demos: left-drag rotates, middle-drag zooms, and
+  // right-drag pans the camera. OrbitControls' default mouse mapping already
+  // assigns the right button to pan; keep the same target and minimum distance
+  // as the Basic story.
+  const controls = new OrbitControls(camera, renderer.domElement)
+  controls.target.copy(CAMERA_TARGET)
+  controls.minDistance = 1000
+  controls.update()
 
   const atmosphereContext = new AtmosphereContext()
   atmosphereContext.camera = camera
@@ -115,12 +129,14 @@ async function init(container: HTMLDivElement): Promise<() => void> {
   window.addEventListener('resize', handleResize)
 
   void renderer.setAnimationLoop(() => {
+    controls.update()
     postProcessing.render()
   })
 
   return () => {
     window.removeEventListener('resize', handleResize)
     void renderer.setAnimationLoop(null)
+    controls.dispose()
     postProcessing.dispose()
     lensFlareNode.dispose()
     aerialNode.dispose()

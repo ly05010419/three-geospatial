@@ -18,10 +18,11 @@ export const Stats: FC = () => {
       trackCPT: true,
       horizontal: false
     })
+    let removeAfterEffect: (() => void) | undefined
     stats
       .init(renderer)
       .then(() => {
-        addAfterEffect(() => {
+        removeAfterEffect = addAfterEffect(() => {
           stats.update()
         })
       })
@@ -31,6 +32,7 @@ export const Stats: FC = () => {
 
     document.body.appendChild(stats.dom)
     return () => {
+      removeAfterEffect?.()
       document.body.removeChild(stats.dom)
     }
   }, [show, renderer])

@@ -151,6 +151,7 @@ const Content: FC<StoryProps> = ({
   const renderer = useThree<Renderer>(({ gl }) => gl as any)
   const scene = useThree(({ scene }) => scene)
   const camera = useThree(({ camera }) => camera)
+  const timestampResolveRef = useRef<Promise<void> | null>(null)
 
   const atmosphereContext = useResource(() => new AtmosphereContext(), [])
   atmosphereContext.camera = camera
@@ -243,6 +244,19 @@ const Content: FC<StoryProps> = ({
 
   useGuardedFrame(() => {
     postProcessing.render()
+    // Three.js timestamp queries are written during the explicit render pass
+    // and must be resolved after submission for stats-gl to read GPU/CPT data.
+    if (timestampResolveRef.current == null) {
+      timestampResolveRef.current = Promise.all([
+        renderer.resolveTimestampsAsync('render'),
+        renderer.resolveTimestampsAsync('compute')
+      ])
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          timestampResolveRef.current = null
+        })
+    }
   }, 1)
 
   useTransientControl(
