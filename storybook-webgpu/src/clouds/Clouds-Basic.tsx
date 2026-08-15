@@ -251,7 +251,26 @@ const Content: FC<StoryProps> = ({
         renderer.resolveTimestampsAsync('render'),
         renderer.resolveTimestampsAsync('compute')
       ])
-        .then(() => undefined)
+        .then(() => {
+          // Three's render pool can include an invalid query pair on some
+          // WebGPU drivers. Rebuild the latest frame duration from the valid
+          // per-context results instead of publishing a wrapped negative sum.
+          const backend = (renderer as any).backend
+          const pool = backend?.timestampQueryPool?.render
+          const frame = pool?.frames?.at?.(-1)
+          if (frame == null) return
+          let duration = 0
+          for (const [uid, value] of pool.timestamps ?? []) {
+            if (!uid.endsWith(`:f${frame}`)) continue
+            if (Number.isFinite(value) && value >= 0 && value < 1000) {
+              duration += value
+            }
+          }
+          if (duration > 0) {
+            const renderInfo = renderer.info.render as any
+            renderInfo.timestamp = duration
+          }
+        })
         .catch(() => undefined)
         .finally(() => {
           timestampResolveRef.current = null
