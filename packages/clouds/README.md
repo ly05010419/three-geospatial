@@ -21,10 +21,10 @@ The demo contains three examples:
 
 ## Installation
 
-The published `0.1.2` release targets Three.js `0.184.x`:
+The published `0.1.3` release targets Three.js `0.184.x`:
 
 ```sh
-npm install @yong_three/three-clouds@0.1.2 three@0.184 postprocessing
+npm install @yong_three/three-clouds@0.1.3 three@0.184 postprocessing
 npm install --save-dev @types/three@0.182
 ```
 
@@ -167,6 +167,9 @@ const cloudLayer = clouds(depthNode, {
 `reversed-z`). `ellipsoid` is used for camera geodetic height instead of
 implicitly using WGS84. `curvature` is carried as node configuration for
 planet-scale integrations and keeps the reference and game radii explicit.
+When both `referenceFrame` and `planetFrame` are supplied, their east/north/up
+bases are converted to a GPU matrix and applied to cloud and shadow shape
+sampling.
 The cloud/atmosphere WGSL helper is emitted as `getCloudLayerDensity`, so the
 two pipelines can be composed without a Vite string replacement.
 

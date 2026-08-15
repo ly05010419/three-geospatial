@@ -11,6 +11,7 @@
 import {
   HalfFloatType,
   LinearFilter,
+  Matrix3,
   Matrix4,
   RedFormat,
   RenderTarget,
@@ -167,6 +168,7 @@ export interface CloudsMarchNodeParameters {
   curvature?: CloudCurvatureOptions
   depth?: CloudDepthOptions
   ellipsoid?: import('@takram/three-geospatial').Ellipsoid
+  positionTransform?: Matrix3
 }
 
 export class CloudsMarchNode extends TempNode {
@@ -220,6 +222,7 @@ export class CloudsMarchNode extends TempNode {
   depthMode: CloudDepthMode = 'conventional'
   depthEpsilon = 1e-7
   ellipsoid?: import('@takram/three-geospatial').Ellipsoid
+  readonly positionTransform: UniformNode<Matrix3>
 
   // Camera settings, updated in update() via copyCameraSettings():
   readonly viewMatrix: UniformNode<Matrix4> = uniform(new Matrix4()).setName(
@@ -378,7 +381,8 @@ export class CloudsMarchNode extends TempNode {
     frame,
     curvature,
     depth,
-    ellipsoid
+    ellipsoid,
+    positionTransform
   }: CloudsMarchNodeParameters) {
     super(null)
     this.depthNode = depthNode
@@ -396,6 +400,7 @@ export class CloudsMarchNode extends TempNode {
     this.depthMode = depth?.mode ?? 'conventional'
     this.depthEpsilon = depth?.epsilon ?? 1e-7
     this.ellipsoid = ellipsoid
+    this.positionTransform = uniform(positionTransform ?? new Matrix3()).setName('cloudsPositionTransform')
 
     this.renderTarget = new RenderTarget(1, 1, {
       count: 3,
@@ -654,7 +659,8 @@ export class CloudsMarchNode extends TempNode {
         this.curvature?.preserveLocalScale !== false &&
         this.curvature?.referenceRadius != null && this.curvature.planetRadius != null
           ? this.curvature.referenceRadius / this.curvature.planetRadius
-          : 1
+          : 1,
+      positionTransform: this.positionTransform
     }
     const sampleWeatherFn = sampleWeather(
       this.parameterUniforms,

@@ -26,7 +26,7 @@
 // shadowMaps.update() and this node's update() explicitly each frame; this
 // node is not independently FRAME-updated (see D1 in .port-plan.md).
 
-import { Matrix4, Vector2, type Data3DTexture, type Texture } from 'three'
+import { Matrix3, Matrix4, Vector2, type Data3DTexture, type Texture } from 'three'
 import { hash } from 'three/src/nodes/core/NodeUtils.js'
 import {
   float,
@@ -110,6 +110,7 @@ export interface CloudShadowNodeParameters {
   planetRadius?: number
   referenceRadius?: number
   preserveLocalScale?: boolean
+  positionTransform?: Matrix3
 }
 
 export class CloudShadowNode extends TempNode {
@@ -244,6 +245,7 @@ export class CloudShadowNode extends TempNode {
   planetRadius?: number
   referenceRadius?: number
   preserveLocalScale?: boolean
+  readonly positionTransform: UniformNode<Matrix3>
 
   constructor({
     parameterUniforms,
@@ -256,7 +258,8 @@ export class CloudShadowNode extends TempNode {
     frame,
     planetRadius,
     referenceRadius,
-    preserveLocalScale
+    preserveLocalScale,
+    positionTransform
   }: CloudShadowNodeParameters) {
     super(null)
     this.parameterUniforms = parameterUniforms
@@ -270,6 +273,7 @@ export class CloudShadowNode extends TempNode {
     this.planetRadius = planetRadius
     this.referenceRadius = referenceRadius
     this.preserveLocalScale = preserveLocalScale
+    this.positionTransform = uniform(positionTransform ?? new Matrix3()).setName('cloudShadowPositionTransform')
 
     // Equivalent to the outputBuffer of the WebGL ShadowPass; the value swaps
     // to the just-written resolve texture every frame:
@@ -493,7 +497,8 @@ export class CloudShadowNode extends TempNode {
         this.preserveLocalScale !== false &&
         this.referenceRadius != null && this.planetRadius != null
           ? this.referenceRadius / this.planetRadius
-          : 1
+          : 1,
+      positionTransform: this.positionTransform
     }
     const sampleWeatherFn = sampleWeather(
       this.parameterUniforms,

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.3] - 2026-08-15
+
+### Fixed
+
+- Fixed the WebGPU `clouds(depthNode, options)` factory to forward options to
+  `CloudsNode` and generated declarations.
+- Added reference/planet frame transforms to the WGSL cloud and shadow shape
+  sampling path.
+
 ## [0.1.2] - 2026-08-15
 
 ### Added

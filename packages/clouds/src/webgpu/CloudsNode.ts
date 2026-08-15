@@ -88,6 +88,20 @@ const vectorScratch1 = /*#__PURE__*/ new Vector3()
 const vectorScratch2 = /*#__PURE__*/ new Vector3()
 const rotationScratch = /*#__PURE__*/ new Matrix3()
 
+const frameMatrix = (frame: NonNullable<NonNullable<CloudsOptions['curvature']>['referenceFrame']>): Matrix3 =>
+  new Matrix3().set(
+    frame.east.x, frame.north.x, frame.up.x,
+    frame.east.y, frame.north.y, frame.up.y,
+    frame.east.z, frame.north.z, frame.up.z
+  )
+
+const getPositionTransform = (curvature: CloudsOptions['curvature']): Matrix3 | undefined => {
+  if (curvature?.referenceFrame == null || curvature.planetFrame == null) return undefined
+  const reference = frameMatrix(curvature.referenceFrame)
+  const planet = frameMatrix(curvature.planetFrame).transpose()
+  return reference.multiply(planet)
+}
+
 export type CloudsTextureInput = Texture | TextureNode | ProceduralTextureNode
 export type CloudsTexture3DInput =
   | Data3DTexture
@@ -176,6 +190,7 @@ export class CloudsNode extends TempNode {
     this.options = options
     this.shadowDispatchMode = options.shadows?.dispatchMode ?? 'automatic'
     const ellipsoid = options.ellipsoid ?? options.atmosphereContext?.ellipsoid
+    const positionTransform = getPositionTransform(options.curvature)
 
     this.parameterUniforms = createCloudParameterUniforms({
       localWeatherRepeat: this.localWeatherRepeat,
@@ -237,7 +252,8 @@ export class CloudsNode extends TempNode {
       frame: this.frameUniform,
       planetRadius: options.curvature?.planetRadius,
       referenceRadius: options.curvature?.referenceRadius,
-      preserveLocalScale: options.curvature?.preserveLocalScale
+      preserveLocalScale: options.curvature?.preserveLocalScale,
+      positionTransform
     })
     // The default of the frozen comparison parameters (§3.3 in
     // .port-plan.md). The WebGL CascadedShadowMaps defaults to the camera far
@@ -259,7 +275,8 @@ export class CloudsNode extends TempNode {
       frame: this.frameUniform,
       curvature: options.curvature,
       depth: options.depth,
-      ellipsoid
+      ellipsoid,
+      positionTransform
     })
 
     this.resolveNode = new CloudsResolveNode({
@@ -802,5 +819,7 @@ export class CloudsNode extends TempNode {
   }
 }
 
-export const clouds = (depthNode?: TextureNode | null): CloudsNode =>
-  new CloudsNode(depthNode)
+export const clouds = (
+  depthNode?: TextureNode | null,
+  options: CloudsOptions = {}
+): CloudsNode => new CloudsNode(depthNode, options)

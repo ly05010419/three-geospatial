@@ -185,6 +185,7 @@ export interface CloudSamplingOptions {
   turbulence?: boolean
   /** Scales world positions used by the 3D shape textures. */
   positionScale?: number
+  positionTransform?: Node<'mat3'>
 }
 
 type SampleWeatherArgs = [
@@ -342,7 +343,10 @@ export const sampleMedia = (
       const density = weather.get('density').toVar()
 
       // TODO: Define in physical length.
-      const samplingPosition = position.mul(positionScale).toConst()
+      const samplingPosition = (options.positionTransform != null
+        ? options.positionTransform.mul(position)
+        : position
+      ).mul(positionScale).toConst()
       const surfaceNormal = normalize(samplingPosition).toConst()
       const localWeatherSpeed = length(localWeatherOffset).toConst()
       const evolution = surfaceNormal
