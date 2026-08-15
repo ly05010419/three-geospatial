@@ -1,6 +1,6 @@
 import { addAfterEffect, useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useRef, useState, type FC } from 'react'
-import { createPortal } from 'react-dom'
+import { Html } from '@react-three/drei'
 import StatsImpl from 'stats-gl'
 
 import type { RendererArgs } from '../controls/rendererControls'
@@ -106,8 +106,9 @@ const PerformancePanel: FC<{ renderer: any; show: boolean }> = ({ renderer, show
 
   if (!show) return null
   const cellStyle = { borderRight: '1px solid rgba(198, 232, 220, 0.22)', borderBottom: '1px solid rgba(198, 232, 220, 0.22)' }
-  return createPortal((
-    <div style={{ position: 'fixed', top: 18, right: 18, width: 348, zIndex: 10000, overflow: 'hidden', border: '1px solid rgba(198, 232, 220, 0.45)', borderRadius: 14, background: 'rgba(5, 31, 37, 0.9)', color: '#edf3db', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none' }}>
+  return (
+    <Html fullscreen style={{ pointerEvents: 'none' }}>
+      <div style={{ position: 'fixed', top: 18, right: 18, width: 348, zIndex: 10000, overflow: 'hidden', border: '1px solid rgba(198, 232, 220, 0.45)', borderRadius: 14, background: 'rgba(5, 31, 37, 0.9)', color: '#edf3db', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
         <MetricCell label="三角形数" value={formatCount(metrics.triangles)} />
         <MetricCell label="近岸状态" value={`${formatCount(metrics.textures)} 纹理`} />
@@ -122,8 +123,9 @@ const PerformancePanel: FC<{ renderer: any; show: boolean }> = ({ renderer, show
         <div style={{ ...cellStyle, borderBottom: 0 }}><div style={{ color: 'rgba(219, 237, 222, 0.55)', fontSize: 10 }}>GPU 渲染</div><div style={{ color: '#edf3db', fontSize: 13, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{metrics.gpuRender == null ? '—' : `${metrics.gpuRender.toFixed(2)}ms`}</div></div>
         <div style={{ background: 'rgba(80, 151, 156, 0.45)' }} />
       </div>
-    </div>
-  ), document.body)
+      </div>
+    </Html>
+  )
 }
 
 export const Stats: FC = () => {
