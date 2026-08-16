@@ -41,6 +41,42 @@ describe('CloudsNode', () => {
     node.dispose()
   })
 
+  test('gates shadow dispatch without losing the requested BSM setting', () => {
+    const node = new CloudsNode()
+    const shadowUpdate = vi
+      .spyOn(node.shadowNode, 'update')
+      .mockImplementation(() => {})
+    vi.spyOn(node.marchNode, 'update').mockImplementation(() => {})
+    vi.spyOn(node.resolveNode, 'update').mockImplementation(() => {})
+
+    node.bsm = true
+    node.shadowsEnabled = false
+
+    expect(node.bsm).toBe(true)
+    expect(node.marchNode.bsm).toBe(false)
+
+    const frame = Object.assign(new NodeFrame(), {
+      deltaTime: 0,
+      renderer: {
+        getDrawingBufferSize: (target: Vector2) => target.set(800, 600)
+      }
+    })
+    node.updateBefore(frame)
+    expect(shadowUpdate).not.toHaveBeenCalled()
+
+    node.shadowsEnabled = true
+    expect(node.marchNode.bsm).toBe(true)
+    node.updateBefore(frame)
+    expect(shadowUpdate).toHaveBeenCalledTimes(1)
+    node.dispose()
+  })
+
+  test('maps autoUpdate false to explicit shadow dispatch', () => {
+    const node = new CloudsNode(undefined, { shadows: { autoUpdate: false } })
+    expect(node.shadowDispatchMode).toBe('explicit')
+    node.dispose()
+  })
+
   test('synchronizes custom layer channels with both march passes', () => {
     const node = new CloudsNode()
 

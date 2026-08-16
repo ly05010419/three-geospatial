@@ -2,7 +2,13 @@
 
 import type { Args, ArgTypes, StoryFn, StoryObj } from '@storybook/react-vite'
 import { atom, useSetAtom, type SetStateAction } from 'jotai'
-import { memo, useEffect, useMemo, type FC } from 'react'
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  type FC
+} from 'react'
 import { useArgs } from 'storybook/preview-api'
 
 import { StoryContext } from '../helpers/StoryContext'
@@ -61,8 +67,10 @@ export function createStory<Props, TArgs extends Args>(
         }
       }, [updateArgs])
 
+      // Keep the atom identity stable for subscribers; the initial args are
+      // captured once and subsequent updates are synchronized below.
       const argsAtom = useMemo(() => {
-        const primitive = atom({})
+        const primitive = atom(args)
         return atom(
           get => get(primitive),
           (get, set, value: SetStateAction<Args>) => {
@@ -72,9 +80,12 @@ export function createStory<Props, TArgs extends Args>(
             )
           }
         )
-      }, [])
+      }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-      useSetAtom(argsAtom)(args)
+      const setArgs = useSetAtom(argsAtom)
+      useLayoutEffect(() => {
+        setArgs(args)
+      }, [args, setArgs])
 
       const context = useMemo(
         () => ({ argsAtom, updateArgs }),

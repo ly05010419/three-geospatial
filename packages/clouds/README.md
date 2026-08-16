@@ -45,8 +45,8 @@ atmosphere context and a scene color/depth pass. The renderer must request at
 least 32 sampled textures per shader stage.
 
 ```ts
-import { WebGPURenderer } from 'three/webgpu'
 import { clouds } from '@yong_three/three-clouds/webgpu'
+import { WebGPURenderer } from 'three/webgpu'
 
 const renderer = new WebGPURenderer({
   requiredLimits: {
@@ -201,6 +201,7 @@ Runtime controls are available on the returned `CloudsNode`:
 cloudLayer.setEnabled(false)
 cloudLayer.setCoverage(0.35)
 cloudLayer.setQuality({ preset: 'medium', bsm: false })
+cloudLayer.shadowsEnabled = false
 cloudLayer.maxRayDistance = 100_000
 cloudLayer.resetHistory()
 cloudLayer.updateShadowMaps(frame) // only when dispatchMode is 'explicit'
@@ -211,9 +212,15 @@ cloudLayer.dispose()
 after the renderer has built the pipeline; no material or shader rebuild is
 triggered.
 
-Set `shadows.enabled: false` to skip the BSM dispatch entirely. For an
-application-owned frame graph, use `dispatchMode: 'explicit'` and call
-`updateShadowMaps(frame)` exactly once per frame.
+Set `shadows.enabled: false` to skip the BSM dispatch entirely. The same gate
+is available at runtime as `cloudLayer.shadowsEnabled`; it also returns neutral
+shadow-length and surface-transmittance values, so it is safe when light shafts
+and scene-surface shadows are disabled. `bsm: false` alone only removes BSM
+sampling from the primary cloud march and does not disable the producer because
+another consumer may still need it. For an application-owned frame graph, use
+`dispatchMode: 'explicit'` (or `autoUpdate: false`) and call
+`updateShadowMaps(frame)` exactly once per frame; the call is a no-op while
+`shadowsEnabled` is false.
 
 ## Current limitations
 

@@ -52,6 +52,10 @@ export interface WebGPUCanvasProps extends Omit<CanvasProps, 'gl'> {
   }
 }
 
+interface RendererWithCloudsTimestamp extends Renderer {
+  __cloudsTimestampPending?: Promise<unknown>
+}
+
 export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
   renderer: { onInit, ...otherProps } = {},
   children,
@@ -62,15 +66,29 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
   const available = useAtomValue(availableAtom)
   let forceWebGL = useControl(({ forceWebGL }: RendererArgs) => forceWebGL)
   forceWebGL ||= !available
+  const showStats = useControl(({ showStats }: RendererArgs) => showStats)
+  const trackTimestamp = useControl(
+    ({ trackTimestamp }: RendererArgs) => trackTimestamp
+  )
   const pixelRatio = useControl(({ pixelRatio }: RendererArgs) => pixelRatio)
   const frameloop = useControl(({ frameloop }: RendererArgs) => frameloop)
 
-  const ref = useRef<Renderer>(null)
+  const ref = useRef<RendererWithCloudsTimestamp>(null)
   useEffect(() => {
     return () => {
       // WORKAROUND: Renderer won't be disposed when used in Storybook.
+      const renderer = ref.current
       setTimeout(() => {
-        ref.current?.dispose()
+        if (renderer == null) return
+        const dispose = (): void => {
+          renderer.dispose()
+        }
+        const pending = renderer.__cloudsTimestampPending
+        if (pending != null) {
+          void pending.catch(() => undefined).then(dispose)
+        } else {
+          dispose()
+        }
       }, 500)
     }
   }, [])
@@ -87,6 +105,10 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
   return (
     <>
       <Canvas
+        // Renderer construction is intentionally keyed only by backend. The
+        // timestamp option is sampled during initialization; changing it at
+        // runtime requires a story reload, while remounting Canvas on every
+        // control update breaks R3F's resize observer.
         key={forceWebGL ? 'webgl' : 'webgpu'}
         frameloop={frameloop}
         {...canvasProps}
@@ -104,7 +126,10 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
             // timestamp query pool during renderer initialization. Enabling
             // this before init is required; setting backend.trackTimestamp
             // afterward is too late for the pool to exist.
-            trackTimestamp: otherProps.trackTimestamp ?? true
+            // Timestamp query pools are profiling-only. Keep them disabled for
+            // the normal render path so the benchmark does not add query
+            // resolve/readback work to every frame.
+            trackTimestamp: otherProps.trackTimestamp ?? trackTimestamp
           })
           ref.current = renderer
           await renderer.init()
@@ -126,7 +151,7 @@ export const WebGPUCanvas: FC<WebGPUCanvasProps> = ({
         onClick={handleClick}
       >
         {children}
-        <Stats />
+        <Stats enabled={showStats} />
       </Canvas>
       <Message forceWebGL={forceWebGL} />
     </>

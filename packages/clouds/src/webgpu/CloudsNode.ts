@@ -70,6 +70,11 @@ import {
   loadDefaultCloudTextures,
   type DefaultCloudTextures
 } from './defaultTextures'
+import type {
+  CloudQualityOptions,
+  CloudsOptions,
+  DefaultTextureLoadOptions
+} from './options'
 import { ProceduralTexture3DNode } from './ProceduralTexture3DNode'
 import { ProceduralTextureNode } from './ProceduralTextureNode'
 import { sampleShadowOpticalDepth } from './shadowSampling'
@@ -81,22 +86,33 @@ import {
   type CloudParameterUniforms
 } from './uniforms'
 import { sampleRedBilinear } from './varianceClipping'
-import type { CloudQualityOptions, CloudsOptions, DefaultTextureLoadOptions } from './options'
 
 const sizeScratch = /*#__PURE__*/ new Vector2()
 const vectorScratch1 = /*#__PURE__*/ new Vector3()
 const vectorScratch2 = /*#__PURE__*/ new Vector3()
 const rotationScratch = /*#__PURE__*/ new Matrix3()
 
-const frameMatrix = (frame: NonNullable<NonNullable<CloudsOptions['curvature']>['referenceFrame']>): Matrix3 =>
+const frameMatrix = (
+  frame: NonNullable<NonNullable<CloudsOptions['curvature']>['referenceFrame']>
+): Matrix3 =>
   new Matrix3().set(
-    frame.east.x, frame.north.x, frame.up.x,
-    frame.east.y, frame.north.y, frame.up.y,
-    frame.east.z, frame.north.z, frame.up.z
+    frame.east.x,
+    frame.north.x,
+    frame.up.x,
+    frame.east.y,
+    frame.north.y,
+    frame.up.y,
+    frame.east.z,
+    frame.north.z,
+    frame.up.z
   )
 
-const getPositionTransform = (curvature: CloudsOptions['curvature']): Matrix3 | undefined => {
-  if (curvature?.referenceFrame == null || curvature.planetFrame == null) return undefined
+const getPositionTransform = (
+  curvature: CloudsOptions['curvature']
+): Matrix3 | undefined => {
+  if (curvature?.referenceFrame == null || curvature.planetFrame == null) {
+    return undefined
+  }
   const reference = frameMatrix(curvature.referenceFrame)
   const planet = frameMatrix(curvature.planetFrame).transpose()
   return reference.multiply(planet)
@@ -180,7 +196,13 @@ export class CloudsNode extends TempNode {
   private atmosphereContext?: AtmosphereContext
   private camera?: Camera
   private _enabled = true
+  private _shadowsEnabled = true
+  private _bsm = true
   readonly enabledUniform = uniform('bool').setName('cloudsEnabled')
+  /** Runtime gate for the BSM producer and all cloud shadow consumers. */
+  readonly shadowsEnabledUniform = uniform('bool').setName(
+    'cloudsShadowsEnabled'
+  )
   readonly options: CloudsOptions
   readonly shadowDispatchMode: 'automatic' | 'explicit'
 
@@ -188,7 +210,11 @@ export class CloudsNode extends TempNode {
     super('vec4')
     this.depthNode = depthNode
     this.options = options
-    this.shadowDispatchMode = options.shadows?.dispatchMode ?? 'automatic'
+    this.shadowDispatchMode =
+      options.shadows?.dispatchMode ??
+      (options.shadows?.autoUpdate === false ? 'explicit' : 'automatic')
+    this._shadowsEnabled = options.shadows?.enabled ?? true
+    this.shadowsEnabledUniform.value = this._shadowsEnabled
     const ellipsoid = options.ellipsoid ?? options.atmosphereContext?.ellipsoid
     const positionTransform = getPositionTransform(options.curvature)
 
@@ -292,8 +318,12 @@ export class CloudsNode extends TempNode {
     if (quality.bsm != null) this.bsm = quality.bsm
     if (quality.lightShafts != null) this.lightShafts = quality.lightShafts
     if (quality.haze != null) this.haze = quality.haze
-    if (quality.temporalUpscale != null) this.temporalUpscale = quality.temporalUpscale
-    if (options.shadows?.enabled === false) this.bsm = false
+    if (quality.temporalUpscale != null) {
+      this.temporalUpscale = quality.temporalUpscale
+    }
+    // Keep the requested BSM setting separate from the runtime producer gate:
+    // disabling all shadow consumers must not lose the user's BSM preference.
+    if (options.shadows?.enabled === false) this.shadowsEnabled = false
     this._enabled = options.enabled ?? true
     this.enabledUniform.value = this._enabled
   }
@@ -307,27 +337,59 @@ export class CloudsNode extends TempNode {
     )
   }
 
-  get enabled(): boolean { return this._enabled }
+  get enabled(): boolean {
+    return this._enabled
+  }
   set enabled(value: boolean) {
     this._enabled = value
     this.enabledUniform.value = value
     this.resetHistory()
   }
-  setEnabled(value: boolean): this { this.enabled = value; return this }
-  setCoverage(value: number): this { this.coverage = value; return this }
+  setEnabled(value: boolean): this {
+    this.enabled = value
+    return this
+  }
+  setCoverage(value: number): this {
+    this.coverage = value
+    return this
+  }
+
+  get shadowsEnabled(): boolean {
+    return this._shadowsEnabled
+  }
+  set shadowsEnabled(value: boolean) {
+    if (value === this._shadowsEnabled) return
+    this._shadowsEnabled = value
+    this.shadowsEnabledUniform.value = value
+    // BSM sampling is baked into the march material. Disable its effective
+    // input while the producer is gated, then restore the requested setting
+    // when the producer is enabled again.
+    this.marchNode.bsm = value && this._bsm
+    this.resetHistory()
+  }
+  setShadowsEnabled(value: boolean): this {
+    this.shadowsEnabled = value
+    return this
+  }
 
   setQuality(options: CloudQualityOptions): this {
     if (options.preset != null) this.qualityPreset = options.preset
     if (options.bsm != null) this.bsm = options.bsm
     if (options.lightShafts != null) this.lightShafts = options.lightShafts
     if (options.haze != null) this.haze = options.haze
-    if (options.temporalUpscale != null) this.temporalUpscale = options.temporalUpscale
+    if (options.temporalUpscale != null) {
+      this.temporalUpscale = options.temporalUpscale
+    }
     this.resetHistory()
     return this
   }
 
-  get maxRayDistance(): number { return this.marchNode.maxRayDistance.value }
-  set maxRayDistance(value: number) { this.marchNode.maxRayDistance.value = value }
+  get maxRayDistance(): number {
+    return this.marchNode.maxRayDistance.value
+  }
+  set maxRayDistance(value: number) {
+    this.marchNode.maxRayDistance.value = value
+  }
 
   // The cascaded shadow maps (CPU), owned by the shadow node and updated by
   // this facade every frame:
@@ -339,11 +401,12 @@ export class CloudsNode extends TempNode {
   // image with zero shadow optical depth, for regression bisecting. The
   // internal material rebuild is automatic:
   get bsm(): boolean {
-    return this.marchNode.bsm
+    return this._bsm
   }
 
   set bsm(value: boolean) {
-    this.marchNode.bsm = value
+    this._bsm = value
+    this.marchNode.bsm = this._shadowsEnabled && value
   }
 
   get temporalUpscale(): boolean {
@@ -598,7 +661,11 @@ export class CloudsNode extends TempNode {
   }
 
   getShadowLengthNode(): Node<'float'> {
-    return sampleRedBilinear(this.getTextureNode('shadowLength'), screenUV)
+    const shadowLength = sampleRedBilinear(
+      this.getTextureNode('shadowLength'),
+      screenUV
+    )
+    return this.shadowsEnabledUniform.select(shadowLength, float(0))
   }
 
   // Returns the fraction of direct sunlight reaching a scene surface. This
@@ -692,7 +759,10 @@ export class CloudsNode extends TempNode {
       radius,
       jitter
     )
-    return exp(opticalDepth.negate())
+    return this.shadowsEnabledUniform.select(
+      exp(opticalDepth.negate()),
+      float(1)
+    )
   }
 
   // Ported from the shadow map portion of CloudsEffect.updateSharedUniforms.
@@ -731,8 +801,12 @@ export class CloudsNode extends TempNode {
     )
   }
 
-  /** Explicitly dispatch the cloud shadow pipeline for integrations that own frame ordering. */
+  /**
+   * Explicitly dispatch the cloud shadow pipeline for integrations that own
+   * frame ordering.
+   */
   updateShadowMaps(frame: NodeFrame): void {
+    if (!this._shadowsEnabled) return
     this.updateShadowMapCamera()
     this.shadowNode.update(frame)
   }
@@ -765,7 +839,7 @@ export class CloudsNode extends TempNode {
 
     // CPU-side shared uniform updates:
     updateCloudLayerUniforms(this.layerUniforms, this.cloudLayers)
-    this.updateShadowMapCamera()
+    if (this._shadowsEnabled) this.updateShadowMapCamera()
 
     // Keep direct shadowMaps mutations synchronized as well. Quality presets
     // update both sides immediately so material rebuilds see the new count:
@@ -774,7 +848,7 @@ export class CloudsNode extends TempNode {
     // The facade drives the sub-passes explicitly to guarantee their order;
     // sub-nodes are not independently FRAME-updated. The BSM march + resolve
     // run before the clouds march that consumes them:
-    if (this.options.shadows?.enabled !== false && this.shadowDispatchMode === 'automatic') {
+    if (this._shadowsEnabled && this.shadowDispatchMode === 'automatic') {
       this.shadowNode.update(frame)
     }
 

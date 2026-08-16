@@ -3,6 +3,7 @@ import type { ArgTypes } from '@storybook/react-vite'
 
 export interface RendererArgs {
   showStats: boolean
+  trackTimestamp: boolean
   forceWebGL: boolean
   pixelRatio: number
   frameloop: Exclude<Frameloop, 'never'>
@@ -12,6 +13,7 @@ export const rendererArgs = (
   defaults?: Partial<RendererArgs>
 ): RendererArgs => ({
   showStats: false,
+  trackTimestamp: false,
   forceWebGL: false,
   pixelRatio: Math.min(window.devicePixelRatio, 2),
   frameloop: 'always',
@@ -20,6 +22,13 @@ export const rendererArgs = (
 
 export const rendererArgTypes = (): ArgTypes<RendererArgs> => ({
   showStats: {
+    control: {
+      type: 'boolean'
+    },
+    table: { category: 'renderer' }
+  },
+  trackTimestamp: {
+    name: 'track timestamp',
     control: {
       type: 'boolean'
     },
