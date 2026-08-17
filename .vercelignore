@@ -1,0 +1,10 @@
+# Only sources are uploaded for CLI deployments; the Storybook is built on Vercel
+# (see vercel.json). Local build outputs would otherwise confuse the nx graph.
+node_modules
+dist
+tmp
+.nx
+storybook-static
+**/storybook-static
+**/storybook-static/**
+.vercel

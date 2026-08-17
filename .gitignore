@@ -334,3 +334,5 @@ storybook-static
 
 .nx/polygraph
 .nx/self-healing
+# Vercel CLI project link
+.vercel
