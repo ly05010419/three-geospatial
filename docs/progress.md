@@ -1,6 +1,6 @@
 # 开发进度
 
-更新时间：2026-08-14
+更新时间：2026-08-17
 
 ## 已完成
 
@@ -24,7 +24,21 @@
 - 已修复手动派发的 `computeKernel()` 被 Three 节点更新阶段再次自动执行的问题；March、Resolve、ClearHistory 都禁用自动 `updateBefore`，避免无 dispatch size 时访问 `null[0]`。
 - Storybook 10 的 mocker runtime 入口现由 Vite fallback middleware 提供真实 runtime，`/vite-inject-mocker-entry.js` 冷启动返回 200，不再出现 404 或挂起预览。
 - Basic 与 Custom Layers 均在 4004 通过 iframe 冷启动 WebGPU 回归；Custom Layers 地面云影清晰可见，相隔 3 秒的 2920×1242 两帧 3,626,640 个像素全部一致，控制台无 WebGPU/WGSL/compute error。
+- 2026-08-17：验收口径已从"代码与 WebGL 1:1"改为"最终画面与 WebGL 肉眼无法区分"，参照页固定为 WebGL `clouds-minimal-setup--minimal-setup`。
+- 已建立无依赖的截图 A/B 工具链：`scripts/visual-compare/capture.mjs`（headless Chrome + CDP，等待 ≥240 帧稳定后截图）、`run-ab.sh`（顺序采集 WebGL/WebGPU 两张图并调用对比）、`compare.py`（PIL + numpy，输出 diff/三联图/blink 与 RMSE、changed%、最大连通块等指标，自带 `--selftest`）。
+- 已修复 `CloudsResolveNode.clearHistory()` 用 alpha 1 清空历史的问题，改为 alpha 0，与 WebGL 渲染目标零初始化一致。
+- 已修复 `CloudsNode.getShadowLengthNode()` 返回 float 的契约错误；新增 `webgpu/shadowLength.ts`，天空用 `shadowLengthFromCamera`、到点用 `shadowLengthToPoint`，与 WebGL Bruneton 的两条路径一致。
+- 已修复 Bayer 投影抖动的 y 符号：新增 `webgpu/temporalJitter.ts`，`applyProjectionJitter(..., flipY)` 适配 WebGPU 左上角原点的 `screenUV`。
+- 已移除 `CloudsNode` 里硬编码的 `shadowMaps.maxFar = 1e5`，改为可选的 `options.shadows.maxFar`，默认跟随 `camera.far`（与 WebGL `CascadedShadowMaps` 一致）。
+- 已修复 `helpers/FrustumCorners.ts` 在 WebGPU 下把近平面角点按 GL 的 NDC z=-1 反投影的问题，这是地面云影整体偏移一个纹素（约 330 m）的根因。
+- 大气新增可选项 `AtmosphereContext.occludeHigherOrderScattering`（默认 false 保持上游行为），复现 WebGL 在光轴阴影段内省略高阶散射的近似；Clouds Basic Story 打开它以对齐 WebGL。
+- 已补齐 `shadowMap` 调试视图（`CloudsMarchNode` + `shadowSampling.getCascadedShadowMaps`），2×2 级联拼贴与 WebGL `DEBUG_SHOW_SHADOW_MAP` 对应。
+- WebGPU `Clouds-Basic` 新增 `dithering`、`lensFlare`、`raymarchScattering`、`accurateShadowScattering`、`occludeHigherOrderScattering` 参数，默认 Tone Mapping 改为 AgX；`Clouds-CustomLayers` 通过 args/hiddenControl 同步。
+- WebGL `MinimalSetup.stories.tsx` 已改写为 CSF3，新增 `clouds`、`coverage`、`postEffects`、`debugShow`、`turbulence`、`shapeDetail` 参数，用于逐层二分对比。
+- 已修复 webgpu 目录下 5 个既有 ESLint 错误（import type、`globalThis.location`、`export type`）。
+- 已定位并消除"无云基线 1.98% RMSE"的根因：`groundAlbedo` 预计算参数默认值不同（WebGL 0.1 vs WebGPU 0.3），它只被多重散射 LUT 的地面反弹项消费。WebGPU 包默认值保持 0.3；Clouds Basic Story 新增 `groundAlbedo` number arg（range 0–1，step 0.01）并默认 0.1，`Clouds-CustomLayers` 以 hiddenControl 同步。无云基线 RMSE 1.98% → 0.552%。
+- 当前指标（1600×900、dpr 1）：round4 全图 RMSE 0.976%（round3 为 2.16%），半分辨率 0.782%，PSNR 40.21 dB，差异 >8/>16/>32 的像素占 2.31%/0.30%/0.015%，最大结构连通块 88 px，判定 noise-only（round smoke 为 45983 px）。11 个采样区域的 RGB 均值差全部落在 ±3/255 以内。
 
 ## 进行中
 
-- 当前无阻塞项。`THREE.Clock` 与 Storybook `PopoverProvider.ariaLabel` 仍是第三方开发环境弃用警告，不影响 WebGPU 渲染；项目直接使用的后处理已迁移到 `RenderPipeline`。
+- `THREE.Clock` 与 Storybook `PopoverProvider.ariaLabel` 仍是第三方开发环境弃用警告，不影响 WebGPU 渲染；项目直接使用的后处理已迁移到 `RenderPipeline`。

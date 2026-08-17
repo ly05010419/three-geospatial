@@ -556,7 +556,13 @@ export const computeIndirectRadianceToPoint = /*#__PURE__*/ FnVar(
         mieScattering.mul(miePhase)
       )
       let radiance: Node<'vec3'>
-      if (context.parameters.higherOrderScatteringTexture) {
+      if (
+        context.parameters.higherOrderScatteringTexture &&
+        !context.occludeHigherOrderScattering
+      ) {
+        // The multiple scattering is assumed to be unaffected by local
+        // occlusion, consistently with the radiance at the sky which adds the
+        // higher-order scattering regardless of occlusion.
         radiance = solarIrradiance
           .mul(
             transmittanceToSun
@@ -568,7 +574,9 @@ export const computeIndirectRadianceToPoint = /*#__PURE__*/ FnVar(
       } else {
         // In case where higherOrderScatteringTexture is disabled, we attenuate
         // the multiple scattering by the shadows so that the inscattered light
-        // become consistent with the radiance at the sky.
+        // become consistent with the radiance at the sky. The same applies
+        // when occludeHigherOrderScattering is enabled, where the radiance at
+        // the sky omits the higher-order scattering inside the shadow segment.
         radiance = solarIrradiance
           .mul(
             transmittanceToSun

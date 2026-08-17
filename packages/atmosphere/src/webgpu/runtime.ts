@@ -160,6 +160,9 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
     const singleMieScatteringNode = lutNode.getTextureNode(
       'singleMieScattering'
     )
+    const higherOrderScatteringNode = lutNode.getTextureNode(
+      'higherOrderScattering'
+    )
     const { topRadius, bottomRadius, miePhaseFunctionG } = parametersNode
 
     // Clamp the viewer at the bottom atmosphere boundary for rendering points
@@ -234,12 +237,37 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
       const scattering = vec3(0).toVar()
       const singleMieScattering = vec3(0).toVar()
 
+      // In case higherOrderScatteringTexture is enabled, the higher-order
+      // scattering is looked up separately from the scattering above. By
+      // default it is assumed to be unaffected by local occlusion and looked
+      // up once at the camera after the shadow branches. When
+      // occludeHigherOrderScattering is enabled, it is omitted inside the
+      // shadow segment like the WebGL implementation instead, which requires
+      // lookups per shadow branch, stored in this variable.
+      const occludedHigherOrderScattering =
+        context.occludeHigherOrderScattering &&
+        context.parameters.higherOrderScatteringTexture
+          ? vec3(0).toVar()
+          : undefined
+
+      // Higher-order scattering at the camera.
+      const getHigherOrderScattering = (): Node<IrradianceSpectrum> =>
+        getScattering(
+          higherOrderScatteringNode,
+          radius,
+          cosView,
+          cosLight,
+          cosViewLight,
+          intersectsGround
+        )
+
       const getScatteringAndTransmittance = (
         rayLength: Node<Length>
       ): {
         S: Node<IrradianceSpectrum>
         M: Node<IrradianceSpectrum>
         T: Node<DimensionlessSpectrum>
+        H: Node<IrradianceSpectrum>
       } => {
         const params = getScatteringParams(
           parametersNode,
@@ -269,7 +297,17 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
         return {
           S: combinedScattering.get('scattering'),
           M: combinedScattering.get('singleMieScattering'),
-          T: transmittance
+          T: transmittance,
+          // Higher-order scattering at the point. It is referenced only when
+          // occludeHigherOrderScattering is enabled, and not emitted otherwise.
+          H: getScattering(
+            higherOrderScatteringNode,
+            params.radius,
+            params.cosView,
+            params.cosLight,
+            cosViewLight,
+            intersectsGround
+          )
         }
       }
 
@@ -283,10 +321,17 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
       //                         P
       //
       // S = T(0,p)S(P)
+      //
+      // The occluded higher-order scattering is also omitted between the camera
+      // and P, but the remainder is not attenuated by T(0,p) like the WebGL
+      // implementation:
+      //
+      // H = H(P)
       const scatteringBranch2 = (): void => {
         const p = getScatteringAndTransmittance(shadowLength.x)
         scattering.assign(p.T.mul(p.S))
         singleMieScattering.assign(p.T.mul(p.M))
+        occludedHigherOrderScattering?.assign(p.H)
       }
 
       // In case where the camera is outside shadows, we have to lookup
@@ -299,6 +344,13 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
       //                    A                B
       //
       // S = S(camera) - T(0,a)S(A) + T(0,b)S(B)
+      //
+      // The occluded higher-order scattering is also omitted inside the shadow
+      // segment, but the remainder beyond B is not attenuated by T(a,b) so
+      // that it equals H(B) when the shadow starts from the camera like the
+      // WebGL implementation:
+      //
+      // H = H(camera) - T(0,a)(H(A) - H(B))
       const scatteringBranch3 = (): void => {
         const combinedScattering = getCombinedScattering(
           parametersNode,
@@ -317,6 +369,9 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
         const b = getScatteringAndTransmittance(shadowLimit)
         scattering.assign(S.sub(a.T.mul(a.S).sub(b.T.mul(b.S)).max(0)))
         singleMieScattering.assign(M.sub(a.T.mul(a.M).sub(b.T.mul(b.M)).max(0)))
+        occludedHigherOrderScattering?.assign(
+          getHigherOrderScattering().sub(a.T.mul(a.H.sub(b.H)))
+        )
       }
 
       const scatteringConditional = If(shadowLength.x.equal(0), () => {
@@ -335,6 +390,7 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
         singleMieScattering.assign(
           combinedScattering.get('singleMieScattering')
         )
+        occludedHigherOrderScattering?.assign(getHigherOrderScattering())
       })
 
       if (context.accurateShadowScattering) {
@@ -352,20 +408,12 @@ const getIndirectRadiance = /*#__PURE__*/ FnVar(
 
       // In case higherOrderScatteringTexture is enabled, the scattering texture
       // includes the single Rayleigh scattering term, so we just add the
-      // higher-order scattering radiance regardless of occlusion.
+      // higher-order scattering radiance regardless of occlusion, unless it is
+      // occluded per shadow branch above.
       let multipleScattering: Node<'vec3'> = vec3(0)
       if (context.parameters.higherOrderScatteringTexture) {
-        const higherOrderScatteringTexture = lutNode.getTextureNode(
-          'higherOrderScattering'
-        )
-        multipleScattering = getScattering(
-          higherOrderScatteringTexture,
-          radius,
-          cosView,
-          cosLight,
-          cosViewLight,
-          intersectsGround
-        )
+        multipleScattering =
+          occludedHigherOrderScattering ?? getHigherOrderScattering()
       }
 
       const rayleighPhase = rayleighPhaseFunction(cosViewLight)
@@ -398,6 +446,9 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
     const singleMieScatteringNode = lutNode.getTextureNode(
       'singleMieScattering'
     )
+    const higherOrderScatteringNode = lutNode.getTextureNode(
+      'higherOrderScattering'
+    )
     const { rayleighScattering, mieScattering, miePhaseFunctionG } =
       parametersNode
 
@@ -423,6 +474,30 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
     const scattering = vec3(0).toVar()
     const singleMieScattering = vec3(0).toVar()
 
+    // In case higherOrderScatteringTexture is enabled, the higher-order
+    // scattering is looked up separately from the scattering above. By default
+    // it is assumed to be unaffected by local occlusion and looked up at the
+    // camera and the point after the shadow branches. When
+    // occludeHigherOrderScattering is enabled, it is omitted inside the shadow
+    // segment like the WebGL implementation instead, which requires lookups
+    // per shadow branch, stored in this variable.
+    const occludedHigherOrderScattering =
+      context.occludeHigherOrderScattering &&
+      context.parameters.higherOrderScatteringTexture
+        ? vec3(0).toVar()
+        : undefined
+
+    // Higher-order scattering at the camera.
+    const getHigherOrderScattering = (): Node<IrradianceSpectrum> =>
+      getScattering(
+        higherOrderScatteringNode,
+        radius,
+        cosView,
+        cosLight,
+        cosViewLight,
+        intersectsGround
+      )
+
     const getScatteringAndTransmittance = (
       rayLength: Node<Length>,
       transmittance?: Node<DimensionlessSpectrum>
@@ -430,6 +505,7 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
       S: Node<IrradianceSpectrum>
       M: Node<IrradianceSpectrum>
       T: Node<DimensionlessSpectrum>
+      H: Node<IrradianceSpectrum>
     } => {
       const params = getScatteringParams(
         parametersNode,
@@ -460,7 +536,17 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
             cosView,
             rayLength,
             intersectsGround
-          )
+          ),
+        // Higher-order scattering at the point. It is referenced only when
+        // occludeHigherOrderScattering is enabled, and not emitted otherwise.
+        H: getScattering(
+          higherOrderScatteringNode,
+          params.radius,
+          params.cosView,
+          params.cosLight,
+          cosViewLight,
+          intersectsGround
+        )
       }
     }
 
@@ -485,6 +571,13 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
     //                   P
     //
     // S = S(camera) - T(0,p)S(P)
+    //
+    // The occluded higher-order scattering is also omitted along the last
+    // shadowLength.x, but its remainder is attenuated by the transmittance to
+    // the surface at distanceToPoint (d) instead of T(0,p) like the WebGL
+    // implementation:
+    //
+    // H = H(camera) - T(0,d)H(P)
     const scatteringBranch1 = (): void => {
       const combinedScattering = getCombinedScattering(
         parametersNode,
@@ -516,6 +609,9 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
       const M = combinedScattering.get('singleMieScattering')
       scattering.assign(S.sub(p.T.mul(p.S)))
       singleMieScattering.assign(M.sub(p.T.mul(p.M)))
+      occludedHigherOrderScattering?.assign(
+        getHigherOrderScattering().sub(transmittance.mul(p.H))
+      )
     }
 
     //        |      distanceToPoint      |
@@ -524,11 +620,18 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
     //                         Q
     //
     // S = T(0,q)S(Q) - T(0,p)S(P)
+    //
+    // The occluded higher-order scattering is also omitted between the camera
+    // and Q, but the remainder is not attenuated by T(0,q) like the WebGL
+    // implementation:
+    //
+    // H = H(Q) - T(0,p)H(P)
     const scatteringBranch2 = (): void => {
       const q = getScatteringAndTransmittance(shadowLimit)
       const p = getScatteringAndTransmittance(distanceToPoint, transmittance)
       scattering.assign(q.T.mul(q.S).sub(transmittance.mul(p.S)))
       singleMieScattering.assign(q.T.mul(q.M).sub(transmittance.mul(p.M)))
+      occludedHigherOrderScattering?.assign(q.H.sub(transmittance.mul(p.H)))
     }
 
     //        |         distanceToPoint        |
@@ -538,6 +641,13 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
     //                A                B
     //
     // S = S(camera) - T(0,p)S(P) - T(0,a)S(A) + T(0,b)S(B)
+    //
+    // The occluded higher-order scattering is also omitted inside the shadow
+    // segment, but the remainder beyond B is not attenuated by T(a,b) so that
+    // it equals H(B) - T(0,p)H(P) when the shadow starts from the camera like
+    // the WebGL implementation:
+    //
+    // H = H(camera) - T(0,p)H(P) - T(0,a)(H(A) - H(B))
     const scatteringBranch3 = (): void => {
       const combinedScattering = getCombinedScattering(
         parametersNode,
@@ -560,6 +670,12 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
       )
       singleMieScattering.assign(
         M.sub(transmittance.mul(p.M), a.T.mul(a.M).sub(b.T.mul(b.M)).max(0))
+      )
+      occludedHigherOrderScattering?.assign(
+        getHigherOrderScattering().sub(
+          transmittance.mul(p.H),
+          a.T.mul(a.H.sub(b.H))
+        )
       )
     }
 
@@ -596,20 +712,13 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
 
     // In case higherOrderScatteringTexture is enabled, the scattering texture
     // includes the single Rayleigh scattering term, so we just add the
-    // higher-order scattering radiance regardless of occlusion.
+    // higher-order scattering radiance regardless of occlusion, unless it is
+    // occluded per shadow branch above.
     let multipleScattering: Node<'vec3'> = vec3(0)
-    if (context.parameters.higherOrderScatteringTexture) {
-      const higherOrderScatteringTexture = lutNode.getTextureNode(
-        'higherOrderScattering'
-      )
-      const higherOrderScattering = getScattering(
-        higherOrderScatteringTexture,
-        radius,
-        cosView,
-        cosLight,
-        cosViewLight,
-        intersectsGround
-      ).toConst()
+    if (occludedHigherOrderScattering != null) {
+      multipleScattering = occludedHigherOrderScattering
+    } else if (context.parameters.higherOrderScatteringTexture) {
+      const higherOrderScattering = getHigherOrderScattering().toConst()
 
       const paramsP = getScatteringParams(
         parametersNode,
@@ -620,7 +729,7 @@ const getIndirectRadianceToPointLookup = /*#__PURE__*/ FnVar(
         distanceToPoint
       )
       const higherOrderScatteringP = getScattering(
-        higherOrderScatteringTexture,
+        higherOrderScatteringNode,
         paramsP.radius,
         paramsP.cosView,
         paramsP.cosLight,

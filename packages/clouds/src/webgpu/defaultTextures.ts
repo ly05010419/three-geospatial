@@ -190,7 +190,7 @@ function loadDefaultSTBNTexture(url: string): PendingTexture<Data3DTexture> {
 
 export function loadDefaultCloudTextures(options: { assetBaseUrl?: string | URL } = {}): DefaultCloudTextures {
   const base = options.assetBaseUrl != null
-    ? new URL(String(options.assetBaseUrl), typeof location !== 'undefined' ? location.href : 'http://localhost/')
+    ? new URL(String(options.assetBaseUrl), globalThis.location?.href ?? 'http://localhost/')
     : undefined
   const asset = (name: string, fallback: string): string =>
     base != null ? new URL(name, base).href : fallback

@@ -29,4 +29,10 @@ describe('AtmosphereContext', () => {
 
     context.dispose()
   })
+
+  test('assumes higher-order scattering unaffected by local occlusion by default', () => {
+    const context = new AtmosphereContext()
+    expect(context.occludeHigherOrderScattering).toBe(false)
+    context.dispose()
+  })
 })

@@ -30,7 +30,8 @@ import {
 } from '@takram/three-atmosphere'
 import {
   aerialPerspective,
-  AtmosphereContext
+  AtmosphereContext,
+  AtmosphereParameters
 } from '@takram/three-atmosphere/webgpu'
 import { radians } from '@takram/three-geospatial'
 import { EastNorthUpFrame } from '@takram/three-geospatial/r3f'
@@ -95,6 +96,23 @@ const LOCAL_CAMERA_POSITION: [number, number, number] = [0, 1, 5]
 // Equivalent to dayOfYear 0, timeOfDay 9 at longitude 30:
 const REFERENCE_DATE = Date.parse('2025-01-01T07:00:00Z')
 
+// WebGL parity: the ground albedo is only consumed by the multiple-scattering
+// LUT precompute (packages/atmosphere/src/webgpu/multiscattering.ts), so it
+// shifts the whole sky and aerial perspective rather than any single object.
+// The WebGL AtmosphereParameters default is 0.1
+// (packages/atmosphere/src/AtmosphereParameters.ts:164) and the shipped WebGL
+// precomputed LUT assets were generated with it, while the WebGPU upstream
+// default is 0.3
+// (packages/atmosphere/src/webgpu/AtmosphereParameters.ts:113). This story
+// therefore defaults to 0.1; the WebGPU package default stays 0.3.
+const DEFAULT_GROUND_ALBEDO = 0.1
+
+function createAtmosphereContext(groundAlbedo: number): AtmosphereContext {
+  const parameters = new AtmosphereParameters()
+  parameters.groundAlbedo.setScalar(groundAlbedo)
+  return new AtmosphereContext(parameters)
+}
+
 interface DateControlsProps {
   atmosphereContext: AtmosphereContext
   longitude: number | MotionValue<number>
@@ -146,7 +164,6 @@ const LocalFrameControls: FC<{
 
 const Content: FC<StoryProps> = ({
   cloudLayers,
-  enableDithering = true,
   localFrame = false,
   temporalShadows = true
 }) => {
@@ -160,7 +177,14 @@ const Content: FC<StoryProps> = ({
   const timestampResolveRef = useRef<Promise<void> | null>(null)
   const nativeGpuProbeRef = useRef<Promise<void> | null>(null)
 
-  const atmosphereContext = useResource(() => new AtmosphereContext(), [])
+  // Built with the story default so the common case computes the LUT once. A
+  // different initial `groundAlbedo` arg (e.g. from the capture URL) is picked
+  // up by the transient control below, whose initial callback runs during this
+  // render, i.e. before the first frame triggers the LUT compute.
+  const atmosphereContext = useResource(
+    () => createAtmosphereContext(DEFAULT_GROUND_ALBEDO),
+    []
+  )
   atmosphereContext.camera = camera
 
   useLayoutEffect(() => {
@@ -235,10 +259,20 @@ const Content: FC<StoryProps> = ({
     [compositeNode]
   )
 
+  // A/B knob vs the WebGL reference, whose debug views skip lens flare (and
+  // tone mapping). Bypassing it changes the output node graph, so the tone
+  // mapping node and the pipeline are re-created. The idle lens flare node
+  // stays allocated but is not part of the graph, thus never updated:
+  const enableLensFlare = useControl(({ lensFlare }: StoryArgs) => lensFlare)
+  const toneMappingInputNode = enableLensFlare ? lensFlareNode : compositeNode
+
   const toneMappingNode = useResource(
-    () => toneMapping(AgXToneMapping, uniform(0), lensFlareNode),
-    [lensFlareNode]
+    () => toneMapping(AgXToneMapping, uniform(0), toneMappingInputNode),
+    [toneMappingInputNode]
   )
+
+  // Dithering changes the output node graph, so the pipeline is re-created:
+  const enableDithering = useControl(({ dithering }: StoryArgs) => dithering)
 
   const postProcessing = useResource(
     () =>
@@ -325,6 +359,55 @@ const Content: FC<StoryProps> = ({
     }
   )
 
+  // A/B knobs vs the WebGL reference: its atmosphere is Bruneton LUT lookup
+  // only (no per-pixel scattering raymarch), i.e. raymarchScattering=false,
+  // it has no accurateShadowScattering equivalent (it keeps the original
+  // shadow-length subtraction), and it omits the higher-order scattering
+  // inside light-shaft shadows, i.e. occludeHigherOrderScattering=true. All
+  // flags are read when the sky, aerial perspective and clouds march shaders
+  // are set up, so rebuild the pipeline and reset the history exactly like the
+  // quality preset:
+  useTransientControl(
+    ({
+      raymarchScattering,
+      accurateShadowScattering,
+      occludeHigherOrderScattering
+    }: StoryArgs) => ({
+      raymarchScattering,
+      accurateShadowScattering,
+      occludeHigherOrderScattering
+    }),
+    ({
+      raymarchScattering,
+      accurateShadowScattering,
+      occludeHigherOrderScattering
+    }) => {
+      atmosphereContext.raymarchScattering = raymarchScattering
+      atmosphereContext.accurateShadowScattering = accurateShadowScattering
+      atmosphereContext.occludeHigherOrderScattering =
+        occludeHigherOrderScattering
+      cloudsNode.resetHistory()
+      postProcessing.needsUpdate = true
+    }
+  )
+
+  // Ground albedo feeds the multiple-scattering LUT precompute only, so it
+  // needs a LUT recompute rather than a pipeline rebuild: AtmosphereLUTNode
+  // rebuilds its compute kernels from a fresh context on every version bump,
+  // which re-bakes the new value. The lighting changes, so drop the history.
+  useTransientControl(
+    ({ groundAlbedo }: StoryArgs) => groundAlbedo,
+    groundAlbedo => {
+      const { parameters, lutNode } = atmosphereContext
+      if (parameters.groundAlbedo.x === groundAlbedo) {
+        return
+      }
+      parameters.groundAlbedo.setScalar(groundAlbedo)
+      lutNode.needsUpdate = true
+      cloudsNode.resetHistory()
+    }
+  )
+
   // The M2/M3 bisect toggle: false renders without the BSM contribution.
   useTransientControl(
     ({ bsm }: StoryArgs) => bsm,
@@ -337,8 +420,12 @@ const Content: FC<StoryProps> = ({
 
   // M4 bisect toggle: false renders the march pass at full resolution and
   // uses the non-upscale temporal resolve path from cloudsResolve.frag.
+  // The shadow map debug view draws the raw BSM in screen space, which
+  // temporal upscaling would reproject, so force it off as the WebGL version
+  // does in useCloudsControls.ts.
   useTransientControl(
-    ({ temporalUpscale }: StoryArgs) => temporalUpscale,
+    ({ temporalUpscale, marchDebugShow }: StoryArgs) =>
+      temporalUpscale && marchDebugShow !== 'shadowMap',
     temporalUpscale => {
       if (cloudsNode.temporalUpscale !== temporalUpscale) {
         cloudsNode.temporalUpscale = temporalUpscale
@@ -469,7 +556,6 @@ const Content: FC<StoryProps> = ({
 
 export interface StoryProps {
   cloudLayers?: CloudLayers
-  enableDithering?: boolean
   localFrame?: boolean
   temporalShadows?: boolean
 }
@@ -490,6 +576,12 @@ export interface StoryArgs
   haze: boolean
   shapeDetail: boolean
   turbulence: boolean
+  dithering: boolean
+  lensFlare: boolean
+  raymarchScattering: boolean
+  accurateShadowScattering: boolean
+  occludeHigherOrderScattering: boolean
+  groundAlbedo: number
   marchDebugShow: CloudsMarchDebugShow
   resolveDebugShow: CloudsResolveDebugShow
 }
@@ -527,6 +619,10 @@ export const Story: StoryFC<StoryProps, StoryArgs> = ({
   </WebGPUCanvas>
 )
 
+// A/B reference: the WebGL "clouds/Minimal Setup" story (frozen pose,
+// 2025-01-01T07:00Z, postprocessing AgX at exposure 10, no dithering).
+// Capture URL for a comparable frame:
+// iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false
 Story.args = {
   coverage: 0.3,
   animateClouds: false,
@@ -542,6 +638,17 @@ Story.args = {
   haze: true,
   shapeDetail: true,
   turbulence: true,
+  dithering: true,
+  lensFlare: true,
+  raymarchScattering: true,
+  accurateShadowScattering: true,
+  // WebGL parity: WebGL omits higher-order scattering inside light-shaft
+  // shadows, whereas the WebGPU default adds it regardless of occlusion.
+  occludeHigherOrderScattering: true,
+  // WebGL parity: see DEFAULT_GROUND_ALBEDO above. WebGL's
+  // AtmosphereParameters default is 0.1 and its precomputed LUT assets were
+  // generated with it, whereas the WebGPU package default is 0.3.
+  groundAlbedo: DEFAULT_GROUND_ALBEDO,
   marchDebugShow: 'none',
   resolveDebugShow: 'none',
   ...localDateArgs({
@@ -550,7 +657,8 @@ Story.args = {
     year: 2025
   }),
   ...toneMappingArgs({
-    toneMappingExposure: 10
+    toneMappingExposure: 10,
+    toneMappingMode: AgXToneMapping
   }),
   ...rendererArgs()
 }
@@ -642,11 +750,51 @@ Story.argTypes = {
       type: 'boolean'
     }
   },
+  dithering: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  lensFlare: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  raymarchScattering: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  accurateShadowScattering: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  occludeHigherOrderScattering: {
+    control: {
+      type: 'boolean'
+    }
+  },
+  groundAlbedo: {
+    control: {
+      type: 'range',
+      min: 0,
+      max: 1,
+      step: 0.01
+    }
+  },
   marchDebugShow: {
     control: {
       type: 'select'
     },
-    options: ['none', 'uv', 'sampleCount', 'frontDepth', 'shadowLength']
+    options: [
+      'none',
+      'uv',
+      'sampleCount',
+      'frontDepth',
+      'shadowLength',
+      'shadowMap'
+    ]
   },
   resolveDebugShow: {
     control: {

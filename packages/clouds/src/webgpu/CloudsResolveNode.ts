@@ -205,10 +205,17 @@ export class CloudsResolveNode extends TempNode {
   }
 
   private clearHistory(renderer: Renderer): void {
+    // The clouds output is premultiplied (alpha = coverage), and the render
+    // targets start out zero-initialized. resetRendererState() has just set
+    // the opaque black clear color, which would composite a black frame over
+    // the scene until the temporal history converges. Clear to transparent
+    // black instead, then return to the reset default for the resolve pass:
+    renderer.setClearColor(0x000000, 0)
     renderer.setRenderTarget(this.resolveRT)
     renderer.clear()
     renderer.setRenderTarget(this.historyRT)
     renderer.clear()
+    renderer.setClearColor(0x000000, 1)
     this.needsClearHistory = false
   }
 

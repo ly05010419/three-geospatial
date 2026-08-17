@@ -6,6 +6,10 @@
 
 - Added `skyBackdrop`.
 - Added `aerialPerspectiveBackdrop`.
+- Added `AtmosphereContext.occludeHigherOrderScattering` (default `false`).
+  When enabled, higher-order (multiple) scattering inside a shadowed segment of
+  the view ray (light shafts) is omitted like the WebGL implementation, in the
+  LUT sky/to-point paths and the raymarched to-point path.
 
 ### Changed
 

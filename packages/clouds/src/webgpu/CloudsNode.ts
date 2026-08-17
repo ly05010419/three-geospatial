@@ -77,6 +77,7 @@ import type {
 } from './options'
 import { ProceduralTexture3DNode } from './ProceduralTexture3DNode'
 import { ProceduralTextureNode } from './ProceduralTextureNode'
+import { shadowLengthFromCamera } from './shadowLength'
 import { sampleShadowOpticalDepth } from './shadowSampling'
 import {
   createCloudLayerUniforms,
@@ -281,11 +282,13 @@ export class CloudsNode extends TempNode {
       preserveLocalScale: options.curvature?.preserveLocalScale,
       positionTransform
     })
-    // The default of the frozen comparison parameters (§3.3 in
-    // .port-plan.md). The WebGL CascadedShadowMaps defaults to the camera far
-    // instead, which extends the cascades needlessly with the story's 4e5
-    // far plane:
-    this.shadowNode.shadowMaps.maxFar = 1e5
+    // Like the WebGL CascadedShadowMaps default (maxFar: null), the cascades
+    // follow the camera far unless the integration caps them via
+    // shadows.maxFar (the frozen comparison in §3.3 of .port-plan.md uses
+    // 1e5, which the stories are expected to set themselves):
+    if (options.shadows?.maxFar !== undefined) {
+      this.shadowNode.shadowMaps.maxFar = options.shadows.maxFar
+    }
 
     this.marchNode = new CloudsMarchNode({
       depthNode: depthNode ?? null,
@@ -660,12 +663,21 @@ export class CloudsNode extends TempNode {
     return this.resolveNode.getTextureNode(name)
   }
 
-  getShadowLengthNode(): Node<'float'> {
+  // Returns the resolved light-shaft shadow length in the vec2 contract of the
+  // atmosphere consumers (SkyNode.shadowLengthNode /
+  // AerialPerspectiveNode.shadowLengthNode): x is the shadowed length along
+  // the view ray, y the distance from the camera to the shadowed segment.
+  // The segment starts at the camera, as in the WebGL GetSkyRadiance() path;
+  // see shadowLength.ts. Passing a bare float would silently be read as
+  // (L, L) because swizzles on floats are no-ops:
+  getShadowLengthNode(): Node<'vec2'> {
     const shadowLength = sampleRedBilinear(
       this.getTextureNode('shadowLength'),
       screenUV
     )
-    return this.shadowsEnabledUniform.select(shadowLength, float(0))
+    return shadowLengthFromCamera(
+      this.shadowsEnabledUniform.select(shadowLength, float(0))
+    )
   }
 
   // Returns the fraction of direct sunlight reaching a scene surface. This

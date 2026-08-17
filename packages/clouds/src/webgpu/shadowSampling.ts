@@ -476,3 +476,65 @@ export const sampleShadowOpticalDepth = (
     }
   )
 }
+
+type GetCascadedShadowMapsArgs = [uv: Node<'vec2'>]
+
+// The scales that the WebGL version applies to bring each BSM channel into a
+// displayable range, kept verbatim from getCascadedShadowMaps():
+const FRONT_DEPTH_SCALE = 1e-5
+const MEAN_EXTINCTION_SCALE = 10
+const MAX_OPTICAL_DEPTH_SCALE = 0.01
+
+// DEBUG_SHOW_SHADOW_MAP in the WebGL version. It tiles the screen with a 2x2
+// grid of cascade slices, ordered top-left, top-right, bottom-left,
+// bottom-right, and leaves the quadrants beyond cascadeCount black.
+//
+// The uv is expected in the bottom-left origin of the WebGL vUv so that the
+// layout matches the WebGL debug view for A/B comparison. Callers reading the
+// top-left origin screenUV must flip y.
+export const getCascadedShadowMaps = (
+  shadowBuffer: Texture3DNode,
+  options: CloudShadowSamplingOptions = {}
+): ShaderNodeFn<ProxiedTuple<GetCascadedShadowMapsArgs>> => {
+  const cascadeCount = parseCascadeCount(options)
+
+  // Same convention as readShadowOpticalDepth(): the slice center in w with an
+  // explicit LOD of 0 so that the filtering never bleeds across the cascades.
+  const readSlice = (uv: Node<'vec2'>, cascadeIndex: number): Node<'vec4'> =>
+    (
+      shadowBuffer.sample(
+        vec3(uv, (cascadeIndex + 0.5) / cascadeCount)
+      ) as Texture3DNode
+    ).level(float(0))
+
+  return FnVar((uv: Node<'vec2'>): Node<'vec4'> => {
+    // coord.xy maps the lower half of the screen onto the slice, and coord.zw
+    // the upper half:
+    const coord = vec4(uv, uv.sub(0.5)).mul(2).toConst()
+    const top = uv.y.greaterThan(0.5).toConst()
+    const left = uv.x.lessThan(0.5).toConst()
+    const quadrants = [
+      { inside: top.and(left), sliceUv: coord.xw },
+      { inside: top.and(left.not()), sliceUv: coord.zw },
+      { inside: top.not().and(left), sliceUv: coord.xy },
+      { inside: top.not().and(left.not()), sliceUv: coord.zy }
+    ]
+
+    // The quadrants of the cascades that don't exist stay black:
+    const shadow = vec4(0).toVar()
+    for (let cascadeIndex = 0; cascadeIndex < cascadeCount; ++cascadeIndex) {
+      const { inside, sliceUv } = quadrants[cascadeIndex]
+      If(inside, () => {
+        shadow.assign(readSlice(sliceUv, cascadeIndex))
+      })
+    }
+
+    // r: frontDepth, g: meanExtinction, b: maxOpticalDepth + maxOpticalDepthTail
+    const color = shadow.rgb
+      .add(vec3(0, 0, shadow.a))
+      .mul(
+        vec3(FRONT_DEPTH_SCALE, MEAN_EXTINCTION_SCALE, MAX_OPTICAL_DEPTH_SCALE)
+      )
+    return vec4(color, 1)
+  })
+}

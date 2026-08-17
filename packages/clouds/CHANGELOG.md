@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Fixed
+
+- `FrustumCorners.setFromCamera()` unprojected the near-plane corners with the
+  WebGL NDC convention (z = -1). Under WebGPU (z ∈ [0, 1]) this shrank the
+  cascade radius by 8e-6, which the texel snapping in `CascadedShadowMaps`
+  turned into a whole-texel shift of cascade 0 (~330 m of ground shadow
+  displacement).
+- WebGPU: `CloudsNode.getShadowLengthNode()` now returns `vec2(length, 0)` as
+  the atmosphere consumers expect (`shadowLengthFromCamera`), and the in-march
+  aerial perspective passes `shadowLengthToPoint` (`vec2(length, max(d − length,
+  0))`), matching the WebGL Bruneton semantics.
+- WebGPU: The temporal projection jitter now negates the y offset for the
+  top-left `screenUV` convention (`applyProjectionJitter`), so the 4×4 Bayer
+  slots reconstruct in the right rows.
+- WebGPU: The resolve history is cleared to alpha 0 (was 1 via
+  `resetRendererState`), removing the black flicker after resets.
+- WebGPU: `CloudsNode` no longer hardcodes `shadowMaps.maxFar = 1e5`; the
+  default follows `camera.far` like WebGL. Use `options.shadows.maxFar` to set
+  it explicitly.
+
+### Added
+
+- WebGPU: `debugShow: 'shadowMap'` on `CloudsMarchNode` (2×2 cascade view,
+  `getCascadedShadowMaps`).
+- `scripts/visual-compare/`: headless-Chrome A/B capture and diff tooling used
+  to verify visual parity with the WebGL reference.
+
 ### Documentation
 
 - Documented that `reversed-z` requires the original, uninverted depth input;

@@ -60,7 +60,6 @@ export const Story: StoryFC<{}, CloudsStoryArgs> = props => (
   <CloudsStory
     {...props}
     cloudLayers={CUSTOM_LAYERS}
-    enableDithering={false}
     localFrame
     temporalShadows={false}
   />
@@ -71,6 +70,7 @@ Story.args = {
   animateClouds: false,
   animateDate: false,
   temporalUpscale: false,
+  dithering: false,
   dateSpeed: 0.05,
   ...locationArgs({
     longitude: 30,
@@ -98,6 +98,12 @@ Story.argTypes = {
   haze: hiddenControl,
   shapeDetail: hiddenControl,
   turbulence: hiddenControl,
+  dithering: hiddenControl,
+  lensFlare: hiddenControl,
+  raymarchScattering: hiddenControl,
+  accurateShadowScattering: hiddenControl,
+  occludeHigherOrderScattering: hiddenControl,
+  groundAlbedo: hiddenControl,
   marchDebugShow: hiddenControl,
   resolveDebugShow: hiddenControl,
   animateDate: {

@@ -135,6 +135,10 @@ export class AtmosphereContext extends AtmosphereContextBase {
   showGround = true
   accurateShadowScattering = true
   raymarchScattering = true
+  // Whether higher-order (multiple) scattering inside a shadowed segment of the
+  // view ray (light shafts) is omitted like the WebGL implementation. Defaults
+  // to false: higher-order scattering is assumed unaffected by local occlusion.
+  occludeHigherOrderScattering = false
 
   constructor(
     parameters = new AtmosphereParameters(),

@@ -1,8 +1,17 @@
-import { Vector2 } from 'three'
-import { NodeFrame } from 'three/webgpu'
+import { Object3D, PerspectiveCamera, Vector2, Vector3 } from 'three'
+import { NodeBuilder, NodeFrame } from 'three/webgpu'
 
 import { CloudShapeDetailNode } from './CloudShapeDetailNode'
 import { CloudsNode } from './CloudsNode'
+
+// NodeBuilder is declared abstract in the typings, but its constructor is
+// enough for resolving node types without a renderer.
+const createBuilder = (): NodeBuilder =>
+  new (NodeBuilder as unknown as new (
+    object: Object3D,
+    renderer: unknown,
+    parser: unknown
+  ) => NodeBuilder)(new Object3D(), {}, null)
 
 describe('CloudsNode', () => {
   test('advances weather and shape offsets from their velocities', () => {
@@ -92,6 +101,40 @@ describe('CloudsNode', () => {
     expect(node.marchNode.localWeatherChannels).toBe('abgr')
     expect(node.layerUniforms.minHeight.value).toBe(1000)
     expect(node.layerUniforms.maxHeight.value).toBe(4400)
+    node.dispose()
+  })
+
+  test('exposes the shadow length as the vec2 the atmosphere expects', () => {
+    const node = new CloudsNode()
+    // SkyNode/AerialPerspectiveNode consume vec2(shadowLength, distance from
+    // the camera to the shadowed segment). A float would silently be read as
+    // (L, L) because swizzles on floats are no-ops.
+    expect(node.getShadowLengthNode().getNodeType(createBuilder())).toBe('vec2')
+    node.dispose()
+  })
+
+  test('lets the shadow map far follow the camera far by default', () => {
+    const node = new CloudsNode()
+    // Like the WebGL CascadedShadowMaps default (maxFar: null), the library
+    // does not impose a far cap; integrations set shadowMaps.maxFar
+    // themselves when needed:
+    expect(node.shadowMaps.maxFar).toBeNull()
+    node.shadowMaps.update(
+      new PerspectiveCamera(75, 1, 1, 4e5),
+      new Vector3(0, 0, 1)
+    )
+    expect(node.shadowMaps.far).toBe(4e5)
+    node.dispose()
+  })
+
+  test('applies the shadow maxFar option', () => {
+    const node = new CloudsNode(undefined, { shadows: { maxFar: 2e5 } })
+    expect(node.shadowMaps.maxFar).toBe(2e5)
+    node.shadowMaps.update(
+      new PerspectiveCamera(75, 1, 1, 4e5),
+      new Vector3(0, 0, 1)
+    )
+    expect(node.shadowMaps.far).toBe(2e5)
     node.dispose()
   })
 

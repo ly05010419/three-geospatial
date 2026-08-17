@@ -65,11 +65,14 @@ import {
   getIndirectLuminanceToPoint,
   type AtmosphereContext
 } from '@takram/three-atmosphere/webgpu'
-import { Geodetic, reinterpretType } from '@takram/three-geospatial'
+import {
+  Geodetic,
+  reinterpretType,
+  type Ellipsoid
+} from '@takram/three-geospatial'
 import { depthToViewZ, turbo, type Node } from '@takram/three-geospatial/webgpu'
 
 import { defaults } from '../qualityPresets'
-import { bayerOffsets } from './bayer'
 import {
   getGlobeUv,
   getMipLevel,
@@ -103,7 +106,12 @@ import {
   rayIntersectsGround,
   raySpheresIntersections
 } from './rayIntersections'
-import { sampleShadowOpticalDepth } from './shadowSampling'
+import { shadowLengthToPoint } from './shadowLength'
+import {
+  getCascadedShadowMaps,
+  sampleShadowOpticalDepth
+} from './shadowSampling'
+import { applyProjectionJitter, getTemporalJitter } from './temporalJitter'
 import type {
   CloudLayerUniforms,
   CloudParameterUniforms,
@@ -122,13 +130,15 @@ export type CloudsMarchDebugShow =
   | 'sampleCount'
   | 'frontDepth'
   | 'shadowLength'
+  | 'shadowMap'
 
 const debugShowValues: readonly CloudsMarchDebugShow[] = [
   'none',
   'uv',
   'sampleCount',
   'frontDepth',
-  'shadowLength'
+  'shadowLength',
+  'shadowMap'
 ]
 
 const cloudsMarchOutputStruct = /*#__PURE__*/ struct(
@@ -167,7 +177,7 @@ export interface CloudsMarchNodeParameters {
   frame?: UniformNode<number>
   curvature?: CloudCurvatureOptions
   depth?: CloudDepthOptions
-  ellipsoid?: import('@takram/three-geospatial').Ellipsoid
+  ellipsoid?: Ellipsoid
   positionTransform?: Matrix3
 }
 
@@ -221,7 +231,7 @@ export class CloudsMarchNode extends TempNode {
   curvature?: CloudCurvatureOptions
   depthMode: CloudDepthMode = 'conventional'
   depthEpsilon = 1e-7
-  ellipsoid?: import('@takram/three-geospatial').Ellipsoid
+  ellipsoid?: Ellipsoid
   readonly positionTransform: UniformNode<Matrix3>
 
   // Camera settings, updated in update() via copyCameraSettings():
@@ -493,7 +503,12 @@ export class CloudsMarchNode extends TempNode {
   }
 
   // Ported from CloudsMaterial.copyCameraSettings(), including the temporal
-  // upscaling Bayer projection jitter path:
+  // upscaling Bayer projection jitter path. The temporalJitter uniform keeps
+  // the WebGL formula (it offsets the top-left screenUV of the depth read
+  // directly), but the projection jitter negates its y term: NDC y points up
+  // while the resolve places the fresh sample by the top-left
+  // screenCoordinate, whereas the WebGL version rasterizes bottom-left. See
+  // temporalJitter.ts:
   private copyCameraSettings(camera: Camera): void {
     const atmosphereContext = this.atmosphereContext
     invariant(atmosphereContext != null)
@@ -507,23 +522,24 @@ export class CloudsMarchNode extends TempNode {
       this.previousViewMatrix ?? camera.matrixWorldInverse
 
     if (this.temporalUpscale) {
-      const frame = this.frame.value % 16
-      const { resolution } = this
-      const offset = bayerOffsets[frame]
-      const dx = ((offset.x - 0.5) / resolution.value.x) * 4
-      const dy = ((offset.y - 0.5) / resolution.value.y) * 4
-      this.temporalJitter.value.set(dx, dy)
+      const jitter = getTemporalJitter(
+        this.frame.value,
+        this.resolution.value,
+        this.temporalJitter.value
+      )
       this.mipLevelScale.value = 0.25
-      this.inverseProjectionMatrix.value.copy(camera.projectionMatrix)
-      this.inverseProjectionMatrix.value.elements[8] += dx * 2
-      this.inverseProjectionMatrix.value.elements[9] += dy * 2
-      this.inverseProjectionMatrix.value.invert()
+      applyProjectionJitter(
+        this.inverseProjectionMatrix.value.copy(camera.projectionMatrix),
+        jitter,
+        true
+      ).invert()
 
       // Jitter the previous projection matrix with the current jitter.
-      this.reprojectionMatrix.value.copy(previousProjectionMatrix)
-      this.reprojectionMatrix.value.elements[8] += dx * 2
-      this.reprojectionMatrix.value.elements[9] += dy * 2
-      this.reprojectionMatrix.value.multiply(previousViewMatrix)
+      applyProjectionJitter(
+        this.reprojectionMatrix.value.copy(previousProjectionMatrix),
+        jitter,
+        true
+      ).multiply(previousViewMatrix)
       this.viewReprojectionMatrix.value
         .copy(this.reprojectionMatrix.value)
         .multiply(this.inverseViewMatrix.value)
@@ -702,6 +718,15 @@ export class CloudsMarchNode extends TempNode {
             }
           )
         : null
+    // DEBUG_SHOW_SHADOW_MAP in the WebGL version, which reads the same BSM
+    // texture as the shadow sampling above:
+    const getCascadedShadowMapsFn =
+      this.debugShow === 'shadowMap' && this.bsm && shadowBuffer != null
+        ? getCascadedShadowMaps(shadowBuffer, {
+            cascadeCount: this.shadowCascadeCount
+          })
+        : null
+
     const shadow: MarchCloudsShadowDependencies | null =
       sampleShadowOpticalDepthFn != null && shadowUniforms != null
         ? {
@@ -770,6 +795,20 @@ export class CloudsMarchNode extends TempNode {
         : null
 
     const marchedOutput = Fn(() => {
+      if (this.debugShow === 'shadowMap') {
+        // The WebGL version returns before any marching, writing zero depth
+        // velocity and shadow length. Without a BSM there is nothing to show.
+        // screenUV has a top-left origin whereas the WebGL vUv has a
+        // bottom-left one, so flip y to keep the cascade layout identical:
+        return cloudsMarchOutputStruct(
+          getCascadedShadowMapsFn != null
+            ? getCascadedShadowMapsFn(vec2(screenUV.x, screenUV.y.oneMinus()))
+            : vec4(0, 0, 0, 1),
+          vec4(0),
+          vec4(0, 0, 0, 1)
+        )
+      }
+
       const cameraPosition = cameraPositionECEF
         .add(altitudeCorrection)
         .toConst()
@@ -972,7 +1011,10 @@ export class CloudsMarchNode extends TempNode {
               }
 
               // applyAerialPerspective(). The shadow length is always 0 in
-              // non-light-shafts mode:
+              // non-light-shafts mode. The atmosphere takes vec2(length,
+              // start distance); GetSkyRadianceToPoint() of the WebGL version
+              // shadows the last shadowLength before the point (frontDepth is
+              // the camera-to-front distance in meters), see shadowLength.ts:
               const frontPosition = rayDirection
                 .mul(frontDepth)
                 .add(cameraPosition)
@@ -980,7 +1022,10 @@ export class CloudsMarchNode extends TempNode {
               const luminanceTransfer = getIndirectLuminanceToPoint(
                 cameraPosition.mul(worldToUnit),
                 frontPosition.mul(worldToUnit),
-                shadowLength.mul(worldToUnit),
+                shadowLengthToPoint(
+                  shadowLength.mul(worldToUnit),
+                  frontDepth.mul(worldToUnit)
+                ),
                 sunDirectionECEF
               ).toConst()
               const inscatter = luminanceTransfer.get('luminance')

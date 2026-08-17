@@ -23,6 +23,11 @@ export interface CloudShadowOptions {
   enabled?: boolean
   autoUpdate?: boolean
   dispatchMode?: 'automatic' | 'explicit'
+  /**
+   * Caps the far distance of the cascaded shadow maps. Defaults to null,
+   * which follows the camera far like the WebGL CascadedShadowMaps.
+   */
+  maxFar?: number | null
 }
 
 export interface CloudQualityOptions {
