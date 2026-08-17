@@ -622,14 +622,16 @@ export const Story: StoryFC<StoryProps, StoryArgs> = ({
 // A/B reference: the WebGL "clouds/Minimal Setup" story (frozen pose,
 // 2025-01-01T07:00Z, postprocessing AgX at exposure 10, no dithering).
 // Capture URL for a comparable frame:
-// iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false
+// iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false;qualityPreset:high
 Story.args = {
   coverage: 0.3,
   animateClouds: false,
   cloudSpeed: 0.001,
   animateDate: false,
   dateSpeed: 0.05,
-  qualityPreset: 'high',
+  // Production demo default; the WebGL parity A/B uses `qualityPreset:high`
+  // explicitly (WebGL Minimal Setup = high defaults).
+  qualityPreset: 'low',
   bsm: true,
   temporalUpscale: true,
   lightShafts: true,

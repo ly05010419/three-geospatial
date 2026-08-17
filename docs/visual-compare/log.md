@@ -9,7 +9,7 @@
 | 项        | 值                                                                                                                                              |
 | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | 参照（A） | WebGL `clouds-minimal-setup--minimal-setup` @ **4402**，冻结位姿，`2025-01-01T07:00Z`，postprocessing AgX 曝光 10，LensFlare，无 SMAA/dithering |
-| 被测（B） | WebGPU `clouds-clouds--basic` @ **4006**，`args=pixelRatio:1;dithering:!false`                                                                  |
+| 被测（B） | WebGPU `clouds-clouds--basic` @ **4006**，`args=pixelRatio:1;dithering:!false;qualityPreset:high`                                                                  |
 | 分辨率    | 1600×900，dpr 1                                                                                                                                 |
 | 稳定      | `--settle-frames 240`（云层升采样 16 帧周期，BSM α=0.01 约需 100 帧）                                                                           |
 | 工具      | `scripts/visual-compare/{capture.mjs,run-ab.sh,compare.py}`                                                                                     |
@@ -59,7 +59,7 @@
 
 ```bash
 node scripts/visual-compare/capture.mjs \
-  --url 'http://localhost:4006/iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false;coverage:0' \
+  --url 'http://localhost:4006/iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false;qualityPreset:high;coverage:0' \
   --out <round>/webgpu-cov0.png --wait-gone '.ant-progress' --max-seconds 300
 python3 scripts/visual-compare/compare.py <atmo>/webgl-noclouds.png <round>/webgpu-cov0.png --out <round>/cmp-atmo
 ```

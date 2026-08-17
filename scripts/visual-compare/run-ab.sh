@@ -28,7 +28,7 @@ shift
 
 OUT="${VC_OUT:-$SCRATCHPAD_DIR/captures/$ROUND}"
 WEBGL_URL="${VC_WEBGL_URL:-http://localhost:4402/iframe.html?id=clouds-minimal-setup--minimal-setup&viewMode=story}"
-WEBGPU_URL="${VC_WEBGPU_URL:-http://localhost:4006/iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false}"
+WEBGPU_URL="${VC_WEBGPU_URL:-http://localhost:4006/iframe.html?id=clouds-clouds--basic&viewMode=story&args=pixelRatio:1;dithering:!false;qualityPreset:high}"
 
 mkdir -p "$OUT"
 COMMON_ARGS=(--width "$WIDTH" --height "$HEIGHT" --dpr "$DPR" "$@")
